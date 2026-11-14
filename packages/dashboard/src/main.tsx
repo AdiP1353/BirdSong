@@ -1,3 +1,7 @@
 import { render } from 'preact';
-import { ENV_NAMES } from '@birdsong/core';
-render(<p>BirdSong dashboard skeleton. Environments: {ENV_NAMES.join(', ')}</p>, document.getElementById('app')!);
+import { App } from './app.tsx';
+import { connect } from './hubClient.ts';
+import './styles.css';
+
+connect();
+render(<App />, document.getElementById('app')!);

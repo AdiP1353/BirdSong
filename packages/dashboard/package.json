@@ -14,7 +14,8 @@
     "dev": "vite",
     "build": "vite build",
     "start": "node src/server/hub.ts",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "mock": "node src/server/mock.ts"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",
