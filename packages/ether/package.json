@@ -1,0 +1,20 @@
+{
+  "name": "@birdsong/ether",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/client.ts"
+  },
+  "dependencies": {
+    "@birdsong/core": "*",
+    "ws": "^8.23.0"
+  },
+  "scripts": {
+    "start": "node src/server.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2"
+  }
+}

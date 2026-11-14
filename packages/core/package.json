@@ -1,0 +1,16 @@
+{
+  "name": "@birdsong/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "fft.js": "^4.0.4",
+    "unishox2.siara.cc": "^1.1.5"
+  }
+}

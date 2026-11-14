@@ -1,0 +1,21 @@
+{
+  "name": "@birdsong/node-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@birdsong/core": "*",
+    "@birdsong/ether": "*",
+    "ws": "^8.23.0"
+  },
+  "bin": {
+    "birdsong": "./src/cli.ts"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2"
+  }
+}
