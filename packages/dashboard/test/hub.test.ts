@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { DEFAULT_NODE_CONFIG } from '@birdsong/core';
 import type { Command, HubToUi, TelemetryEvent } from '@birdsong/core';
@@ -94,6 +97,78 @@ describe('hub', () => {
     const r = await fetch(`http://127.0.0.1:${hub.port}/`);
     expect(await r.text()).toContain('not built');
     const c = await (await fetch(`http://127.0.0.1:${hub.port}/config.json`)).json();
-    expect(c).toEqual({ etherUrl: null });
+    expect(c).toEqual({ etherUrl: null, proxyUrl: null });
+  });
+
+  const restart = async (extra: Parameters<typeof startHub>[0]): Promise<void> => {
+    await hub.close();
+    hub = await startHub({ port: 0, distDir: '/nonexistent-dist', ...extra });
+  };
+  const getLog = async (q = ''): Promise<{ entries: Array<{ seq: number; kind: string }>; next: number }> =>
+    (await fetch(`http://127.0.0.1:${hub.port}/api/log${q}`)).json() as never;
+  const untilLog = async (n: number): Promise<void> => {
+    for (let i = 0; i < 100 && (await getLog()).entries.length < n; i++) await new Promise((r) => setTimeout(r, 20));
+    expect((await getLog()).entries.length).toBeGreaterThanOrEqual(n);
+  };
+
+  it('config.json carries proxyUrl', async () => {
+    await restart({ proxyUrl: 'http://localhost:3100' });
+    const c = await (await fetch(`http://127.0.0.1:${hub.port}/config.json`)).json();
+    expect(c).toEqual({ etherUrl: null, proxyUrl: 'http://localhost:3100' });
+  });
+
+  it('/api/log records events, commands and offline in order', async () => {
+    const n = await open('/node');
+    n.ws.send(JSON.stringify(hello(1)));
+    n.ws.send(JSON.stringify({ type: 'heard', node: 1, from: 130, msgId: 1, seed: 0, hop: 0, k: 2, sync: 0.5, t: 5 }));
+    await untilLog(2);
+    const ui = await open('/ui');
+    ui.ws.send(JSON.stringify({ type: 'configure', node: 1, patch: { muted: true } }));
+    await untilLog(3);
+    n.ws.close();
+    await untilLog(4);
+    const all = await getLog();
+    expect(all.entries.map((e) => e.kind)).toEqual(['event', 'event', 'command', 'offline']);
+    expect(all.entries.map((e) => e.seq)).toEqual([1, 2, 3, 4]);
+    const since = await getLog('?since=2');
+    expect(since.entries.map((e) => e.seq)).toEqual([3, 4]);
+    expect(since.next).toBe(4);
+    expect((await getLog('?limit=1')).entries).toHaveLength(1);
+    expect(await getLog('?since=99')).toEqual({ entries: [], next: 99 });
+    ui.ws.close();
+  });
+
+  it('/app serves the web app', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bs-dist-'));
+    writeFileSync(join(dir, 'index.html'), '<p>app</p>');
+    writeFileSync(join(dir, 'manifest.webmanifest'), '{}');
+    await restart({ webDistDir: dir });
+    const base = `http://127.0.0.1:${hub.port}`;
+    const redirect = await fetch(`${base}/app`, { redirect: 'manual' });
+    expect(redirect.status).toBe(301);
+    expect(redirect.headers.get('location')).toBe('/app/');
+    expect(await (await fetch(`${base}/app/`)).text()).toBe('<p>app</p>');
+    expect((await fetch(`${base}/app/manifest.webmanifest`)).headers.get('content-type')).toBe('application/manifest+json');
+    expect((await fetch(`${base}/app/..%2f..%2fpackage.json`)).status).toBe(400);
+    expect((await fetch(`${base}/app/missing.js`)).status).toBe(404);
+    expect(await (await fetch(`${base}/`)).text()).toContain('not built');
+  });
+
+  it('/app without a build says how to build it', async () => {
+    await restart({ webDistDir: '/nonexistent-web' });
+    expect(await (await fetch(`http://127.0.0.1:${hub.port}/app/`)).text()).toContain('npm run build -w @birdsong/web');
+  });
+
+  it('writes the log file', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'bs-log-'));
+    const file = join(dir, 'logs', 'i.ndjson');
+    await restart({ logFile: file });
+    const n = await open('/node');
+    n.ws.send(JSON.stringify(hello(2)));
+    await until(() => existsSync(file) && readFileSync(file, 'utf8').includes('"hello"'));
+    const first = JSON.parse(readFileSync(file, 'utf8').split('\n')[0]!);
+    expect(first.kind).toBe('event');
+    expect(first.data.node).toBe(2);
+    n.ws.close();
   });
 });

@@ -8,6 +8,7 @@ import { JoinQr } from './components/JoinQr.tsx';
 import { Controls } from './components/Controls.tsx';
 import { Feed } from './components/Feed.tsx';
 import { Listen } from './components/Listen.tsx';
+import { NodeLinks } from './components/NodeLinks.tsx';
 
 export function App() {
   const [, setV] = useState(0);
@@ -41,6 +42,7 @@ export function App() {
           <JoinQr join={store.join} env={env} profile={profile} />
           <Controls nodes={nodes} events={events} focus={focus} env={env} profile={profile} camouflage={camouflage} />
           <Listen />
+          <NodeLinks nodes={nodes} />
           <Feed messages={feed(events)} focus={focus} />
         </aside>
       </main>

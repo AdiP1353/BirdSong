@@ -14,7 +14,7 @@ type Listener = () => void;
 
 export const store: Store = {
   state: createHubState(),
-  join: { pwaUrl: 'http://localhost:5180/', passphrase: 'demo-flock' },
+  join: { pwaUrl: 'http://localhost:3200/app/', passphrase: 'demo-flock' },
   connected: false,
   focus: null,
   version: 0,

@@ -7,6 +7,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { HUB_PORT } from '@birdsong/core';
 import type { Command, HubToUi, TelemetryEvent } from '@birdsong/core';
 import { createHubState } from './state.ts';
+import { createInteractionLog } from './interactionLog.ts';
 
 export interface HubOptions {
   port?: number;
@@ -14,21 +15,31 @@ export interface HubOptions {
   pwaUrl?: string;
   etherUrl?: string | null;
   distDir?: string;
+  /** Built phone/node web app served at /app/ (default packages/web/dist). */
+  webDistDir?: string;
+  /** NDJSON interaction log file; null/absent = memory only. */
+  logFile?: string | null;
+  /** Public base URL of the node reverse proxy (e.g. http://localhost:3100), sent to the dashboard in /config.json. */
+  proxyUrl?: string | null;
 }
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml',
   '.png': 'image/png', '.ico': 'image/x-icon', '.map': 'application/json', '.woff2': 'font/woff2',
+  '.webmanifest': 'application/manifest+json',
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
 
 export function startHub(opts: HubOptions = {}): Promise<{ port: number; close(): Promise<void> }> {
   const passphrase = opts.passphrase ?? 'demo-flock';
-  const pwaUrl = opts.pwaUrl ?? 'http://localhost:5180/';
+  let pwaUrl = opts.pwaUrl ?? '';
+  const proxyUrl = opts.proxyUrl ?? null;
   const etherUrl = opts.etherUrl ?? null;
   const distDir = resolve(opts.distDir ?? join(here, '..', '..', 'dist'));
+  const webDistDir = resolve(opts.webDistDir ?? join(here, '..', '..', '..', 'web', 'dist'));
+  const log = createInteractionLog({ file: opts.logFile ?? null });
   const state = createHubState();
   const nodeSockets = new Map<number, WebSocket>();
   const socketNode = new Map<WebSocket, number>();
@@ -39,16 +50,10 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
     for (const ws of uiSockets) if (ws.readyState === WebSocket.OPEN) ws.send(s);
   };
 
-  async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const url = new URL(req.url ?? '/', 'http://x');
-    if (url.pathname === '/config.json') {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ etherUrl }));
-      return;
-    }
+  async function serveFrom(root: string, pathname: string, res: ServerResponse, notBuilt: string): Promise<void> {
     let rel: string;
     try {
-      rel = decodeURIComponent(url.pathname);
+      rel = decodeURIComponent(pathname);
     } catch {
       res.writeHead(400).end('bad request');
       return;
@@ -58,8 +63,8 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
       return;
     }
     if (rel.endsWith('/')) rel += 'index.html';
-    const file = normalize(join(distDir, rel));
-    if (file !== distDir && !file.startsWith(distDir + sep)) {
+    const file = normalize(join(root, rel));
+    if (file !== root && !file.startsWith(root + sep)) {
       res.writeHead(400).end('bad request');
       return;
     }
@@ -69,17 +74,44 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
       res.end(body);
     } catch {
       try {
-        await readFile(join(distDir, 'index.html'));
+        await readFile(join(root, 'index.html'));
         res.writeHead(404).end('not found');
       } catch {
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-        res.end('BirdSong hub is running, but the dashboard UI is not built. Run: npm run build -w @birdsong/dashboard\n');
+        res.end(notBuilt);
       }
     }
   }
 
+  async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const url = new URL(req.url ?? '/', 'http://x');
+    const p = url.pathname;
+    if (p === '/config.json') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ etherUrl, proxyUrl }));
+      return;
+    }
+    if (p === '/api/log') {
+      const after = Number(url.searchParams.get('since') ?? 0) || 0;
+      const limit = Math.min(2000, Math.max(1, Math.floor(Number(url.searchParams.get('limit') ?? 500) || 500)));
+      const entries = log.since(after, limit);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ entries, next: entries.length > 0 ? entries[entries.length - 1]!.seq : after }));
+      return;
+    }
+    if (p === '/app') {
+      res.writeHead(301, { location: '/app/' }).end();
+      return;
+    }
+    if (p.startsWith('/app/')) {
+      await serveFrom(webDistDir, p.slice('/app'.length), res, 'The phone app is not built. Run: npm run build -w @birdsong/web\n');
+      return;
+    }
+    await serveFrom(distDir, p, res, 'BirdSong hub is running, but the dashboard UI is not built. Run: npm run build -w @birdsong/dashboard\n');
+  }
+
   const server: Server = createServer((req, res) => {
-    void serveStatic(req, res);
+    void route(req, res);
   });
   const wss = new WebSocketServer({ noServer: true });
 
@@ -116,6 +148,7 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
         socketNode.set(ws, event.node);
       }
       state.apply(event, now);
+      log.append('event', event);
       sendUi({ type: 'event', event });
     });
     ws.on('close', () => {
@@ -124,6 +157,7 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
       if (id === undefined) return;
       if (nodeSockets.get(id) === ws) nodeSockets.delete(id);
       state.markOffline(id, Date.now());
+      log.append('offline', { node: id });
       sendUi({ type: 'nodeOffline', node: id });
     });
     ws.on('error', () => {});
@@ -144,6 +178,7 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
         return;
       }
       if (typeof cmd !== 'object' || cmd === null) return;
+      log.append('command', cmd);
       const text = JSON.stringify(cmd);
       if (cmd.node === 'all') {
         for (const s of nodeSockets.values()) if (s.readyState === WebSocket.OPEN) s.send(text);
@@ -161,11 +196,13 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
     server.listen(opts.port ?? HUB_PORT, () => {
       const addr = server.address();
       const port = typeof addr === 'object' && addr ? addr.port : 0;
+      if (pwaUrl === '') pwaUrl = `http://localhost:${port}/app/`;
       resolveStart({
         port,
         close() {
           return new Promise<void>((done) => {
             for (const ws of wss.clients) ws.terminate();
+            log.close();
             wss.close();
             server.closeAllConnections();
             server.close(() => done());
@@ -181,8 +218,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const hub = await startHub({
     port,
     passphrase: process.env.CHANNEL_PASSPHRASE ?? 'demo-flock',
-    pwaUrl: process.env.PWA_URL ?? 'http://localhost:5180/',
+    pwaUrl: process.env.PWA_URL || undefined,
     etherUrl: process.env.ETHER_URL || null,
+    proxyUrl: process.env.PROXY_URL || null,
+    logFile: process.env.HUB_LOG_FILE || null,
+    webDistDir: process.env.WEB_DIST || undefined,
   });
-  console.log(`hub listening on ${hub.port}`);
+  console.log(`hub listening on ${hub.port}${process.env.HUB_LOG_FILE ? `, logging to ${process.env.HUB_LOG_FILE}` : ''}`);
 }

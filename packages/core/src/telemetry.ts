@@ -34,6 +34,8 @@ export type HubToUi =
   | { type: 'nodeOffline'; node: number };
 
 /** Default ports. */
-export const HUB_PORT = 7070;
+export const HUB_PORT = 3200;
+/** Public port of the simulated mesh's reverse proxy. Keep in sync with docker/Caddyfile and docker/compose.sim.yml. */
+export const PROXY_PORT = 3100;
 export const ETHER_PORT = 7080;
 export const NODE_UI_PORT = 8080;
