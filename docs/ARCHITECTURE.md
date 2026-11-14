@@ -35,8 +35,16 @@ Message data travels only as sound (real air, or the ether in simulation). The h
 | `packages/core` | Pure, dependency-light library: constants, codec, modem, node engine, ambient beds, message songs, simulated-air mixer and fake modem. Runs in Node and the browser. |
 | `packages/node-runtime` | The laptop node: CLI flags, PulseAudio audio port, ambient player, local HTTP API and UI on port 8080, telemetry client. Runs in Docker. |
 | `packages/web` | Phone and browser PWA (Preact + Vite): a full node in the browser, plus the remote UI for container nodes (`?runtime=remote`). Deployed to GitHub Pages. |
-| `packages/dashboard` | Hub server (WebSocket relay of events and commands, port 7070) and the projector UI: flock graph, feed, controls, score, join QR. |
+| `packages/dashboard` | Hub server (WebSocket relay of events and commands, port 3200; also serves the node app at `/app/` and the interaction log) and the projector UI: flock graph, feed, controls, score, join QR. |
 | `packages/ether` | The simulated air: a WebSocket service that mixes node audio by distance, used by `scripts/sim-up.sh`, CI and the fallback demo. |
+
+### Ports (simulated mesh)
+
+| Port | Process | Serves |
+|---|---|---|
+| 3100 | proxy (Caddy) | `/nodes/<id>/` to each node, `/ether/` to the simulated air |
+| 3200 | hub | dashboard, node app `/app/`, WebSockets `/node` and `/ui`, `/config.json`, `/api/log` |
+| internal | ether 7080, nodes 8080 | reached by service name on the compose network, not published |
 
 ## Seams
 

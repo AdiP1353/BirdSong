@@ -40,18 +40,18 @@ Start the mesh:
 bash scripts/sim-up.sh
 ```
 
-Open the dashboard at <http://localhost:7070>. If it says "reconnecting" right after startup, reload the page once. You should see 8 nodes online.
+Open the dashboard at <http://localhost:3200>. If it says "reconnecting" right after startup, reload the page once. You should see 8 nodes online.
 
-Send a message from node 0, either from its web page at <http://localhost:8080/?runtime=remote> (type in the box, press **Send**) or from the command line:
+Send a message from node 0, either from its web page at <http://localhost:3100/nodes/0/> (type in the box, press **Send**) or from the command line:
 
 ```bash
-curl -X POST localhost:8080/api/send -H 'Content-Type: application/json' -d '{"text":"hello flock"}'
+curl -X POST localhost:3100/nodes/0/api/send -H 'Content-Type: application/json' -d '{"text":"hello flock"}'
 ```
 
 Watch it spread: on the dashboard the nodes pulse, links light up between neighbours, each node's ring fills as it collects the message, and the Messages panel lists who has decoded it and after how many hops. Node 7 is at least three hops from node 0; in our test a short message reached it in about 25 seconds. Check it there:
 
 ```bash
-curl -s localhost:8087/api/state
+curl -s localhost:3100/nodes/7/api/state
 ```
 
 Kill two nodes: press **Kill 2 random relays** on the dashboard (or **Mute** on any node in the Controls panel). The remaining nodes keep relaying, so the message can still reach the others (the "two relays killed" case is covered by an end-to-end test).
@@ -61,6 +61,8 @@ Stop the mesh:
 ```bash
 docker compose -f docker/compose.sim.yml down
 ```
+
+The mesh publishes two ports on your machine. **3200** is the hub: the dashboard, the node app at `/app/`, and the interaction log at `/api/log` (also written to `logs/interactions.ndjson`). **3100** is a proxy: `/nodes/<id>/` reaches node `<id>` and `/ether/` reaches the simulated air. The nodes and the ether have no ports of their own.
 
 If Docker is not available, `bash scripts/smoke-ether.sh` runs a two-node version natively (about 8 seconds) and checks that a message arrives.
 
@@ -88,7 +90,7 @@ BIRDSONG_ID=1 bash scripts/run-node.sh --key my-secret-phrase --env jungle --pro
 | `--env <name>` | `BIRDSONG_ENV` | `quiet`, `jungle`, `coast` or `city` (default `quiet`). |
 | `--profile <name>` | `BIRDSONG_PROFILE` | `stealth` or `fast` (default: the environment's default). |
 | `--volume <0..1>` | `BIRDSONG_VOLUME` | Output gain (default 0.8). |
-| `--observatory <url>` | `BIRDSONG_OBSERVATORY` | Dashboard hub, for example `ws://192.168.1.10:7070`. Shows the node on the dashboard. |
+| `--observatory <url>` | `BIRDSONG_OBSERVATORY` | Dashboard hub, for example `ws://192.168.1.10:3200`. Shows the node on the dashboard. |
 | `--port <n>` | `BIRDSONG_PORT` | Port of the node's web page and API (default 8080). |
 | `--camouflage` | `BIRDSONG_CAMOUFLAGE` | Play the ambient bed of the environment. |
 | `--neighbors <ids>` | `BIRDSONG_NEIGHBORS` | Only accept frames from these sender ids, for example `1,3`. |
@@ -101,10 +103,16 @@ docker run --rm birdsong-node --help
 
 Every node in a flock must use the same `--key`, `--env` and `--profile`. The node's own page is then at <http://localhost:8080>.
 
-Optional: put the node on the dashboard. On one laptop (after `npm install`), build and start the hub, then add `--observatory ws://<HUB_IP>:7070` to each `run-node.sh` command (use `ws://localhost:7070` on the hub laptop). `PWA_URL` is the address of the phone app that goes into the dashboard's QR code, see [section 5](#5-join-with-a-phone).
+Optional: put the node on the dashboard. On one laptop (after `npm install`), build and start the hub, then add `--observatory ws://<HUB_IP>:3200` to each `run-node.sh` command (use `ws://localhost:3200` on the hub laptop). `PWA_URL` is the address of the phone app that goes into the dashboard's QR code, see [section 5](#5-join-with-a-phone).
 
 ```bash
 npm run build -w @birdsong/dashboard
+```
+
+The hub also serves the node app at `/app/`, so build that too:
+
+```bash
+npm run build -w @birdsong/web
 ```
 
 ```bash
@@ -169,9 +177,11 @@ To try the phone app on your own machine, `npm run dev -w @birdsong/web` serves 
 
 Every container node serves its own page. Open <http://localhost:8080/?runtime=remote> (plain `http://localhost:8080/` redirects there; use the node's `--port` if you changed it). It shows the node's id and species, the environment and profile, a **Mute**/**Unmute** button, the Send box, the Inbox, messages in flight and a Settings panel (environment, profile, volume). The `?runtime=remote` part makes the page control the container node. Without it, the same page starts a phone-style node in your browser.
 
+In the simulated mesh, node N's page is <http://localhost:3100/nodes/N/>; the dashboard's **Node pages** panel links to each one.
+
 ### The command line
 
-The CLI talks to a node's HTTP API (port 8080, or the port in `BIRDSONG_PORT`). Run it from the repository:
+The CLI talks to a node's HTTP API (port 8080, or the port in `BIRDSONG_PORT`; `BIRDSONG_URL` overrides `BIRDSONG_PORT` with a full base URL). Run it from the repository:
 
 ```bash
 node packages/node-runtime/src/cli.ts send "meet at the bridge"
@@ -189,10 +199,10 @@ node packages/node-runtime/src/cli.ts state
 node packages/node-runtime/src/cli.ts config volume=0.5 muted=true
 ```
 
-`config` takes `key=value` pairs for `env`, `profile`, `volume`, `muted`, `camouflage` and `neighbors` (for example `neighbors=[1,3]`, or `neighbors=null` to hear everyone). To reach another node, set the port:
+`config` takes `key=value` pairs for `env`, `profile`, `volume`, `muted`, `camouflage` and `neighbors` (for example `neighbors=[1,3]`, or `neighbors=null` to hear everyone). To reach another node, set its base URL (here node 1 of the simulated mesh):
 
 ```bash
-BIRDSONG_PORT=8081 node packages/node-runtime/src/cli.ts inbox
+BIRDSONG_URL=http://localhost:3100/nodes/1 node packages/node-runtime/src/cli.ts inbox
 ```
 
 ### The HTTP API
@@ -208,7 +218,7 @@ All API responses allow cross-origin requests.
 
 ## 7. The dashboard
 
-Start it with `bash scripts/sim-up.sh` (simulated mesh) or by running the hub yourself, as in [section 4](#4-run-a-real-node-on-a-laptop). It is at <http://localhost:7070> and is meant for a projector.
+Start it with `bash scripts/sim-up.sh` (simulated mesh) or by running the hub yourself, as in [section 4](#4-run-a-real-node-on-a-laptop). It is at <http://localhost:3200> and is meant for a projector.
 
 - **Header:** counters for nodes online, frames heard, CRC failures (frames that arrived damaged beyond repair, or were not frames) and messages delivered.
 - **Flock graph:** one circle per node, coloured by species, with phones drawn dashed. Links between nodes light up when one hears the other, rings pulse when a node sings, and a progress ring fills as a node collects a message. Muted or offline nodes fade.
@@ -216,6 +226,8 @@ Start it with `bash scripts/sim-up.sh` (simulated mesh) or by running the hub yo
 - **Controls:** **Environment** and **Profile** menus and a **Camouflage** checkbox apply to every node at once. **Kill 2 random relays** mutes two random online laptop nodes (never phones, and never the node that wrote the message you have selected). Below that, every node has its own **Mute**/**Unmute** button and a volume slider; phones are listed as "phone" and cannot be controlled.
 - **Messages:** each decoded message with its author and the nodes that decoded it (`#node (hops)`, plus the seconds since the first decode). Click a message to follow it in the graph.
 - **Join the flock:** the QR code and link for phones, see [section 5](#5-join-with-a-phone).
+- **Node pages:** only for the simulated mesh. A link to each online container node's page (served by the hub at `/app/`, talking to the node through the proxy).
+- **Interaction log:** the hub records every node event, every dashboard command and every node disconnect. `GET /api/log?since=<seq>&limit=<n>` returns `{ entries, next }`; each entry is `{ seq, t, kind: event|command|offline, data }`. With `HUB_LOG_FILE` set (the simulated mesh uses `logs/interactions.ndjson`) it is also written as one JSON object per line, and the file rotates to `.1` at 10 MiB.
 - **Listen to the simulated air:** only for the simulated mesh. It plays what the ether carries through the page's speakers, so a projector can play the flock. Press again ("Stop listening") to stop. In our check the button toggled and the page stayed connected; we could not hear the audio output.
 
 The dashboard sees phones only indirectly: they send no telemetry, so the hub infers a phone when a laptop hears a frame from a sender id it does not know.
@@ -283,9 +295,9 @@ A short checklist; [docs/RUNBOOK.md](docs/RUNBOOK.md) has the full 3-minute scri
 **The dashboard shows no nodes.**
 
 - Right after startup it can say "reconnecting": reload the page once.
-- Real nodes appear only if they were started with `--observatory ws://<HUB_IP>:7070` (and the hub is reachable from the laptop on that port). Phones never appear by themselves.
-- If the page is not at <http://localhost:7070>, check the hub is running (`npm start -w @birdsong/dashboard`) and that you built the page first (`npm run build -w @birdsong/dashboard`).
-- The QR shows `http://localhost:5180/` if `PWA_URL` is not set; set it to the address of the phone app.
+- Real nodes appear only if they were started with `--observatory ws://<HUB_IP>:3200` (and the hub is reachable from the laptop on that port). Phones never appear by themselves.
+- If the page is not at <http://localhost:3200>, check the hub is running (`npm start -w @birdsong/dashboard`) and that you built the page first (`npm run build -w @birdsong/dashboard`).
+- The QR shows `http://localhost:3200/app/` if `PWA_URL` is not set. That address works only in a browser on the hub machine, because phones need HTTPS for the microphone. Set `PWA_URL` to the HTTPS Pages address of the phone app.
 
 ## 12. Development
 
@@ -325,6 +337,6 @@ From [docs/PROTOCOL.md](docs/PROTOCOL.md) section 9 and the notes in `plans/READ
 - **Small ids.** The message id is 16 bits (two live messages can collide) and the channel tag is 8 bits (a different channel matches by chance 1 time in 256).
 - **Occasional false frames.** The receiver sometimes reports extra frames (for example in reverb tails); error correction and the CRC discard them.
 - **Message size.** At most 240 bytes after compression, so a 140-character text that compresses badly can be refused.
-- **`sim-up.sh` on a fresh build.** It builds all ten services from one image tag in parallel, which can fail with "image already exists". Run `docker build -f docker/Dockerfile.node -t birdsong-node .` first (then the build is a cache hit).
-- **Dashboard.** Phones do not send telemetry, so they appear only when a laptop hears them. A page opened right after startup may need one reload. The default `PWA_URL` (`http://localhost:5180/`) is not where the phone app is served unless you set it.
+- **`sim-up.sh` on a fresh build.** It builds ten services from one image tag in parallel (plus the `caddy:2` proxy image, which is pulled), which can fail with "image already exists". Run `docker build -f docker/Dockerfile.node -t birdsong-node .` first (then the build is a cache hit).
+- **Dashboard.** Phones do not send telemetry, so they appear only when a laptop hears them. A page opened right after startup may need one reload. The default `PWA_URL` is the hub's own `/app/` (`http://localhost:3200/app/`). It works only on the hub machine, because phones need HTTPS for the microphone, so set `PWA_URL` to the HTTPS Pages address for real phones.
 - **No AI.** Compression is a static dictionary (Unishox2); there is no language model in the project.

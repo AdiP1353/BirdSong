@@ -14,7 +14,7 @@ Everything here was written from the code and scripts. Real speakers and microph
    It must print a `Server Name:` line.
 4. Build the dashboard on the hub laptop: `npm ci && npm run build -w @birdsong/dashboard`.
 5. Open `<PAGES_URL>` on one Android phone and one iPhone. Check the Join screen loads, microphone permission is granted, and test one send. Note what the iPhone does with the sound (earpiece versus speaker); this is the known weak spot.
-6. Print the join QR: start the hub (step 3 below), open `http://localhost:7070`, print the "Join the flock" panel.
+6. Print the join QR: start the hub (step 3 below), open `http://localhost:3200`, print the "Join the flock" panel.
 7. Optional: `npm test && npm run test:e2e` on the hub laptop.
 
 ## 2. Physical layout
@@ -23,7 +23,7 @@ Everything here was written from the code and scripts. Real speakers and microph
 2. Set transmit volume (`--volume`, default 0.8, or the node UI Settings) low enough that the **first and last laptop cannot hear each other**.
    Test: run only the two end laptops (step 3 commands, nodes 1 and N). Send from one end. The far end must NOT decode. Raise or lower the volume or the distance until that holds, then start all the laptops.
 3. The dashboard laptop also runs a node.
-4. Put the projector on the hub laptop (`http://localhost:7070`). Keep the phone volume at about 70%.
+4. Put the projector on the hub laptop (`http://localhost:3200`). Keep the phone volume at about 70%.
 
 ## 3. Start commands
 
@@ -35,14 +35,14 @@ Hub (dashboard laptop):
 CHANNEL_PASSPHRASE=<PASSPHRASE> PWA_URL=<PAGES_URL> npm start -w @birdsong/dashboard
 ```
 
-The dashboard is at `http://localhost:7070` (port 7070).
+The dashboard is at `http://localhost:3200` (port 3200).
 
-Each laptop node (change the id; use `ws://localhost:7070` on the hub laptop itself):
+Each laptop node (change the id; use `ws://localhost:3200` on the hub laptop itself):
 
 ```
-BIRDSONG_ID=1 bash scripts/run-node.sh --key <PASSPHRASE> --env jungle --observatory ws://<HUB_IP>:7070
-BIRDSONG_ID=2 bash scripts/run-node.sh --key <PASSPHRASE> --env jungle --observatory ws://<HUB_IP>:7070
-BIRDSONG_ID=3 bash scripts/run-node.sh --key <PASSPHRASE> --env jungle --observatory ws://<HUB_IP>:7070
+BIRDSONG_ID=1 bash scripts/run-node.sh --key <PASSPHRASE> --env jungle --observatory ws://<HUB_IP>:3200
+BIRDSONG_ID=2 bash scripts/run-node.sh --key <PASSPHRASE> --env jungle --observatory ws://<HUB_IP>:3200
+BIRDSONG_ID=3 bash scripts/run-node.sh --key <PASSPHRASE> --env jungle --observatory ws://<HUB_IP>:3200
 ```
 
 All laptops and phones must use the same passphrase, environment and profile. Useful extra flags: `--profile fast|stealth`, `--volume 0..1`, `--alias <name>`, `--camouflage`, `--neighbors 1,3` (accept only those sender ids). Each node serves its own UI at `http://localhost:8080/?runtime=remote`. All flags: `docker run --rm birdsong-node --help`.
@@ -63,7 +63,7 @@ Check: all nodes show as online on the dashboard.
 ## 5. Fallbacks
 
 - **Room too loud**: set everything to the `fast` profile (dashboard Profile menu) and raise the volume. Then re-check the end-to-end isolation test.
-- **Still failing**: run the simulated mesh and play it through the projector speakers: `bash scripts/sim-up.sh` (8 nodes + ether + hub in Docker). Open `http://localhost:7070` and press "Listen to the simulated air". The Listen button is implemented but was only tested against the mock flock, not a live ether, so try it once the night before. The nodes' UIs are `http://localhost:8080` to `http://localhost:8087` with `/?runtime=remote`. Send a test message with `curl -X POST localhost:8080/api/send -H 'content-type: application/json' -d '{"text":"hello"}'`.
+- **Still failing**: run the simulated mesh and play it through the projector speakers: `bash scripts/sim-up.sh` (8 nodes + ether + hub in Docker). Open `http://localhost:3200` and press "Listen to the simulated air" (it connects through the proxy to `ws://localhost:3100/ether/listen`). The Listen button is implemented but was only tested against the mock flock, not a live ether, so try it once the night before. The nodes' pages are `http://localhost:3100/nodes/0/` to `http://localhost:3100/nodes/7/`. Send a test message with `curl -X POST localhost:3100/nodes/0/api/send -H 'content-type: application/json' -d '{"text":"hello"}'`.
 - **A phone will not join**: use the laptop's local UI at `http://localhost:8080/?runtime=remote`.
 - **Dashboard shows "reconnecting"** right after startup: reload the page once.
 - **Fake messages or no messages**: check that every node shows the same environment and profile and the same passphrase.
