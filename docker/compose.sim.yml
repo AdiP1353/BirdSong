@@ -1,4 +1,6 @@
 # Simulated 8-node mesh. Start with: bash scripts/sim-up.sh
+# Published on the host: 3200 = hub (dashboard, node app /app/, /api/log), 3100 = proxy (/nodes/<id>/, /ether/).
+# The ether and the nodes publish no ports; they reach each other by service name.
 x-node: &node
   image: birdsong-node
   build:
@@ -18,7 +20,6 @@ services:
       ETHER_PORT: "7080"
       ETHER_RANGE: "1.5"
       ETHER_NOISE_RMS: "0.002"
-    ports: ["7080:7080"]
   hub:
     image: birdsong-node
     build:
@@ -26,39 +27,40 @@ services:
       dockerfile: docker/Dockerfile.node
     entrypoint: ["node", "packages/dashboard/src/server/hub.ts"]
     environment:
-      HUB_PORT: "7070"
+      HUB_PORT: "3200"
       CHANNEL_PASSPHRASE: demo-flock
-      ETHER_URL: ws://localhost:7080
-    ports: ["7070:7070"]
+      # Browser-facing URLs (opened by the dashboard page on the host):
+      ETHER_URL: ws://localhost:3100/ether
+      PROXY_URL: http://localhost:3100
+      HUB_LOG_FILE: /app/logs/interactions.ndjson
+    volumes: ["../logs:/app/logs"]
+    ports: ["3200:3200"]
+  proxy:
+    image: caddy:2
+    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro"]
+    ports: ["3100:3100"]
+    depends_on: [ether, bird0, bird1, bird2, bird3, bird4, bird5, bird6, bird7]
   bird0:
     <<: *node
-    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:7070", "--key", "demo-flock", "--env", "quiet", "--id", "0", "--x", "0", "--y", "0", "--port", "8080"]
-    ports: ["8080:8080"]
+    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:3200", "--key", "demo-flock", "--env", "quiet", "--id", "0", "--x", "0", "--y", "0", "--port", "8080"]
   bird1:
     <<: *node
-    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:7070", "--key", "demo-flock", "--env", "quiet", "--id", "1", "--x", "1", "--y", "0", "--port", "8080"]
-    ports: ["8081:8080"]
+    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:3200", "--key", "demo-flock", "--env", "quiet", "--id", "1", "--x", "1", "--y", "0", "--port", "8080"]
   bird2:
     <<: *node
-    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:7070", "--key", "demo-flock", "--env", "quiet", "--id", "2", "--x", "2", "--y", "0", "--port", "8080"]
-    ports: ["8082:8080"]
+    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:3200", "--key", "demo-flock", "--env", "quiet", "--id", "2", "--x", "2", "--y", "0", "--port", "8080"]
   bird3:
     <<: *node
-    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:7070", "--key", "demo-flock", "--env", "quiet", "--id", "3", "--x", "3", "--y", "0", "--port", "8080"]
-    ports: ["8083:8080"]
+    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:3200", "--key", "demo-flock", "--env", "quiet", "--id", "3", "--x", "3", "--y", "0", "--port", "8080"]
   bird4:
     <<: *node
-    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:7070", "--key", "demo-flock", "--env", "quiet", "--id", "4", "--x", "0", "--y", "1", "--port", "8080"]
-    ports: ["8084:8080"]
+    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:3200", "--key", "demo-flock", "--env", "quiet", "--id", "4", "--x", "0", "--y", "1", "--port", "8080"]
   bird5:
     <<: *node
-    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:7070", "--key", "demo-flock", "--env", "quiet", "--id", "5", "--x", "1", "--y", "1", "--port", "8080"]
-    ports: ["8085:8080"]
+    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:3200", "--key", "demo-flock", "--env", "quiet", "--id", "5", "--x", "1", "--y", "1", "--port", "8080"]
   bird6:
     <<: *node
-    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:7070", "--key", "demo-flock", "--env", "quiet", "--id", "6", "--x", "2", "--y", "1", "--port", "8080"]
-    ports: ["8086:8080"]
+    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:3200", "--key", "demo-flock", "--env", "quiet", "--id", "6", "--x", "2", "--y", "1", "--port", "8080"]
   bird7:
     <<: *node
-    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:7070", "--key", "demo-flock", "--env", "quiet", "--id", "7", "--x", "3", "--y", "1", "--port", "8080"]
-    ports: ["8087:8080"]
+    command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:3200", "--key", "demo-flock", "--env", "quiet", "--id", "7", "--x", "3", "--y", "1", "--port", "8080"]

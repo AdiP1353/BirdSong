@@ -1,0 +1,49 @@
+# Reverse proxy for the simulated mesh (docker/compose.sim.yml).
+# Port 3100 is the only host port that reaches the nodes and the ether.
+# Keep the port in sync with PROXY_PORT in packages/core/src/telemetry.ts.
+{
+	admin off
+	auto_https off
+}
+
+:3100 {
+	redir /nodes/0 /nodes/0/ 308
+	handle_path /nodes/0/* {
+		reverse_proxy bird0:8080
+	}
+	redir /nodes/1 /nodes/1/ 308
+	handle_path /nodes/1/* {
+		reverse_proxy bird1:8080
+	}
+	redir /nodes/2 /nodes/2/ 308
+	handle_path /nodes/2/* {
+		reverse_proxy bird2:8080
+	}
+	redir /nodes/3 /nodes/3/ 308
+	handle_path /nodes/3/* {
+		reverse_proxy bird3:8080
+	}
+	redir /nodes/4 /nodes/4/ 308
+	handle_path /nodes/4/* {
+		reverse_proxy bird4:8080
+	}
+	redir /nodes/5 /nodes/5/ 308
+	handle_path /nodes/5/* {
+		reverse_proxy bird5:8080
+	}
+	redir /nodes/6 /nodes/6/ 308
+	handle_path /nodes/6/* {
+		reverse_proxy bird6:8080
+	}
+	redir /nodes/7 /nodes/7/ 308
+	handle_path /nodes/7/* {
+		reverse_proxy bird7:8080
+	}
+	redir /ether /ether/ 308
+	handle_path /ether/* {
+		reverse_proxy ether:7080
+	}
+	handle {
+		respond "BirdSong proxy. Nodes: /nodes/0/ to /nodes/7/. Simulated air: /ether/listen (WebSocket). Dashboard: port 3200." 404
+	}
+}

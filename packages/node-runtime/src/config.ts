@@ -34,7 +34,7 @@ Options (each also reads the environment variable shown):
   --audio <pulse|ether>  BIRDSONG_AUDIO        real speaker/mic or simulated air (default: pulse)
   --ether <url>          BIRDSONG_ETHER        ether service (default: ws://localhost:7080)
   --x <n> --y <n>        BIRDSONG_X, BIRDSONG_Y  position in the ether (default: 0)
-  --observatory <url>    BIRDSONG_OBSERVATORY  dashboard hub base URL, e.g. ws://hub:7070
+  --observatory <url>    BIRDSONG_OBSERVATORY  dashboard hub base URL, e.g. ws://hub:3200
   --port <n>             BIRDSONG_PORT         HTTP/UI port (default: 8080)
   --neighbors <ids>      BIRDSONG_NEIGHBORS    comma-separated sender ids to accept
   --camouflage           BIRDSONG_CAMOUFLAGE   play the ambient bed (true|false)
