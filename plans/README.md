@@ -20,7 +20,7 @@ each executor in its own git worktree also works; then merge in wave order.)
 | 001 | Scaffold monorepo + shared contracts | P1 | M | — | both | DONE |
 | 002 | Codec: crypto, fountain, frames, Reed–Solomon | P1 | M | 001 | P2 | DONE |
 | 003 | Modem: chirp synth + noisy-room decoder | P1 | L | 001 | P1 | TODO |
-| 004 | Simulated air: in-process world + ether service | P1 | M | 001 | P1 | TODO |
+| 004 | Simulated air: in-process world + ether service | P1 | M | 001 | P1 | DONE |
 | 009 | Dashboard hub + live UI (built against a mock flock) | P1 | M | 001 | P2 | TODO |
 | 005 | Node engine: gossip, Trickle, mesh e2e tests | P1 | L | 002, 004 (003 for its last step) | P2 | TODO |
 | 006 | Message songs + ambient camouflage beds | P2 | M | 001 (ambient); 002, 003 (song) | P1 | IN PROGRESS (ambient done, song waiting on 002/003) |
