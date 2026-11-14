@@ -27,6 +27,9 @@ each executor in its own git worktree also works; then merge in wave order.)
 | 007 | Node runtime, PulseAudio, Docker, compose mesh | P1 | L | 002, 003, 004, 005 | P1 | DONE |
 | 008 | Phone PWA + container local UI + Pages deploy | P1 | L | 003, 005 (006 optional) | P2 | DONE |
 | 010 | Docs: protocol spec, architecture, runbook, Devpost, pitch outline | P2 | M | most others | both | DONE |
+| 011 | Node page and CLI work under a path prefix (`?node=`, relative redirect, `BIRDSONG_URL`) | P1 | S | — | any | TODO |
+| 012 | Hub on 3200: serves `/app/`, interaction log + `GET /api/log`, Node pages panel | P1 | M | — | any | TODO |
+| 013 | Compose publishes only 3100 (Caddy proxy) and 3200 (hub); docs updated | P1 | M | 011, 012 | any | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED (one-line rationale)
 
@@ -42,6 +45,8 @@ each in its own directory:
 | 3 | 005, 006 Steps 4–7 (song) | 002 + 004 / 002 + 003 | 5–9 |
 | 4 | 007, 008 | 005 | 8–12 |
 | 5 | 010 | 007, 008 | 15–17 |
+| 6 | 011, 012 | — (post-MVP) | — |
+| 7 | 013 | 011 + 012 | — |
 
 **Checkpoint at hour 9:** `npm run test:e2e` green (plan 005): the mesh
 works in simulation. **Checkpoint at hour 12:** `bash scripts/sim-up.sh`
@@ -64,6 +69,33 @@ everything after it is improvement.
   node in the browser. Song tools and camouflage hide themselves if 006 is not DONE.
 - 009 needs only 001: it is developed against its own mock flock, then works
   unchanged with real nodes from 007 because both follow the hub protocol in `packages/core/src/telemetry.ts`.
+
+## Two-port layout (plans 011–013, added 2026-11-14 at `ff670cc`)
+
+Source design: `~/.claude/plans/moonlit-doodling-orbit.md`. The simulated mesh
+goes from ten host ports (ether 7080, hub 7070, nodes 8080–8087) to two:
+**3100** (Caddy reverse proxy: `/nodes/<id>/` → `bird<id>:8080`, `/ether/` → `ether:7080`)
+and **3200** (hub: dashboard, node app at `/app/`, interaction log).
+011 and 012 touch separate files and can run in parallel; 013 needs both.
+Executor brief (order, ground rules, starting state, report format): `plans/HANDOFF-011-013.md`.
+
+Corrections to the source design, found while writing the plans (already in the plans):
+
+1. The node page called the API at `location.origin`, so `/nodes/<id>/` would not work behind the proxy. 011 adds `nodeBaseFromLocation` (the page's directory, or a validated `?node=`).
+2. `node-runtime/test/http.test.ts:53` asserts the absolute redirect; it changes with `http.ts:117`.
+3. `/nodes/<id>` without a slash needs a Caddy `redir` (`handle_path /nodes/<id>/*` does not match it).
+4. `HUB_PORT` is only imported by `dashboard/src/server/hub.ts` and `mock.ts`; no test asserts 7070.
+5. `Dockerfile.node` already builds `packages/web/dist`; no Dockerfile change and no `WEB_DIST` in compose.
+6. Compose nodes report `kind: 'container'`, not `'sim'`; the Node pages panel filters on that.
+7. The CLI could not reach proxied nodes; 011 adds `BIRDSONG_URL`.
+8. The ether already works behind prefix stripping (`pathname === '/listen'`); only `ETHER_URL` changes.
+9. The hub MIME table lacked `.webmanifest`.
+10. The `PWA_URL` default now follows the hub port (`http://localhost:<port>/app/`).
+11. `scripts/smoke-ether.sh` starts its own processes and stays unchanged.
+12. The source design said `/app/` on the hub "fixes" the `PWA_URL` limitation. It does not for phones: the microphone needs HTTPS, so phones still join via the Pages URL. `/app/` is for laptop browsers controlling container nodes. 013's docs say so.
+13. The interaction log holds message plaintext; 013 adds `logs` to `.dockerignore` (or `COPY . .` bakes it into the image) as well as `.gitignore`.
+
+A fresh-context cold read of 011–013 found 10 issues (wrong test counts, greps that could never come back empty, HTTP-200 checks that pass on the "not built" notice, escaped pipes in a Markdown table, the `.dockerignore` gap); all were applied.
 
 ## Human-only work (not plans — needs people, hardware, or judgment)
 
@@ -114,6 +146,10 @@ These came out of stress-testing the design; they are reflected in the plans:
 - *Network-coded relaying from a partial rank*: real gain only in large meshes; deferred (noted in plan 005).
 - *Running the modem in a Web Worker*: deferred unless plan 008 measures main-thread stalls over 1 s.
 - *Real-room acoustic delay in the simulated air*: frames are seconds long, rooms are milliseconds; reverb is tested in plan 003 instead.
+- *Real laptop nodes behind port 3100*: they run with host networking on other machines; would need an `--advertise <url>` flag. Deferred.
+- *Dashboard "Interactions" panel*: `GET /api/log` and the NDJSON file are enough for now; add a panel if the demo needs it.
+- *Dropping `|| true` from the Dockerfile's web/dashboard build*: hides build failures, but unrelated to the port change; not in 011–013.
+- *Caddy `map`/placeholder upstreams instead of eight explicit blocks*: shorter but harder for an executor to verify; eight literal blocks chosen.
 
 ## Cold-read review — outcome
 
