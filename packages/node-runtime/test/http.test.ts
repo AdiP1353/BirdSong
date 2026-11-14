@@ -50,7 +50,7 @@ describe('node http api', () => {
     const { base } = await setup();
     const root = await fetch(`${base}/`, { redirect: 'manual' });
     expect(root.status).toBe(302);
-    expect(root.headers.get('location')).toBe('/?runtime=remote');
+    expect(root.headers.get('location')).toBe('?runtime=remote');
     const idx = await fetch(`${base}/?runtime=remote`);
     expect(await idx.text()).toBe('<p>index</p>');
     expect((await fetch(`${base}/app.js`)).headers.get('content-type')).toMatch(/javascript/);

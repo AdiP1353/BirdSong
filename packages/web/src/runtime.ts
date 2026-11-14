@@ -59,6 +59,23 @@ export function createLocalRuntime(o: LocalOptions): Runtime & { port: ReturnTyp
 
 export interface RemoteRuntime extends Runtime { close(): void }
 
+/**
+ * Base URL of the node a remote page controls.
+ * `nodeParam` (the page's `?node=` value) wins and must be an http(s) URL.
+ * Otherwise the node is the server that served this page, at the page's
+ * directory, so a page at /nodes/3/ talks to /nodes/3/api/...
+ * The result never ends in '/'.
+ */
+export function nodeBaseFromLocation(href: string, nodeParam: string | null): string {
+  if (nodeParam !== null && nodeParam !== '') {
+    let u: URL;
+    try { u = new URL(nodeParam); } catch { throw new Error(`node must be an http(s) URL, got: ${nodeParam}`); }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error(`node must be an http(s) URL, got: ${nodeParam}`);
+    return u.href.replace(/[?#].*$/, '').replace(/\/+$/, '');
+  }
+  return new URL('.', href).href.replace(/\/+$/, '');
+}
+
 export function createRemoteRuntime(baseUrl: string = location.origin): RemoteRuntime {
   const base = baseUrl.replace(/\/+$/, '');
   const wsUrl = `${base.replace(/^http/, 'ws')}/api/events`;

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-const base = `http://localhost:${process.env['BIRDSONG_PORT'] ?? 8080}`;
+// BIRDSONG_URL (e.g. http://localhost:3100/nodes/3) overrides BIRDSONG_PORT.
+const base = (process.env['BIRDSONG_URL'] ?? `http://localhost:${process.env['BIRDSONG_PORT'] ?? 8080}`).replace(/\/+$/, '');
 
 async function call(path: string, body?: unknown): Promise<any> {
   let res: Response;
@@ -16,7 +17,7 @@ async function call(path: string, body?: unknown): Promise<any> {
 }
 
 function usage(): never {
-  console.error('usage: birdsong send "<text>" | inbox | state | config key=value ...');
+  console.error('usage: birdsong send "<text>" | inbox | state | config key=value ...\nBIRDSONG_URL (e.g. http://localhost:3100/nodes/3) overrides BIRDSONG_PORT.');
   process.exit(1);
 }
 

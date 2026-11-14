@@ -4,10 +4,17 @@ import type { NodeConfig, NodeState } from '@birdsong/core';
 import { Flock } from './components/Flock.tsx';
 import { Join } from './components/Join.tsx';
 import { parseJoin } from './join.ts';
-import { createLocalRuntime, createRemoteRuntime } from './runtime.ts';
+import { createLocalRuntime, createRemoteRuntime, nodeBaseFromLocation } from './runtime.ts';
 import type { Runtime } from './runtime.ts';
 
-const remote = new URLSearchParams(location.search).get('runtime') === 'remote';
+const params = new URLSearchParams(location.search);
+const remote = params.get('runtime') === 'remote';
+let remoteBase: string | null = null;
+let remoteError: string | null = null;
+if (remote) {
+  try { remoteBase = nodeBaseFromLocation(location.href, params.get('node')); }
+  catch (e) { remoteError = e instanceof Error ? e.message : String(e); }
+}
 const initialJoin = parseJoin(location.hash);
 if (location.hash) history.replaceState(null, '', location.pathname + location.search);
 
@@ -28,9 +35,9 @@ function micMessage(e: unknown): string {
 }
 
 export function App() {
-  const [runtime, setRuntime] = useState<Runtime | null>(() => (remote ? createRemoteRuntime() : null));
+  const [runtime, setRuntime] = useState<Runtime | null>(() => (remoteBase !== null ? createRemoteRuntime(remoteBase) : null));
   const [state, setState] = useState<NodeState | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(remoteError);
   const [busy, setBusy] = useState(false);
   const secrets = useRef({ passphrase: initialJoin.passphrase ?? '', alias: '' });
 

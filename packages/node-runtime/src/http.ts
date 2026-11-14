@@ -114,7 +114,7 @@ export function startHttp(node: BirdNode, port: number, distDir?: string): Promi
       return;
     }
     if (p === '/' && url.search === '') {
-      res.writeHead(302, { Location: '/?runtime=remote' });
+      res.writeHead(302, { Location: '?runtime=remote' });
       res.end();
       return;
     }
