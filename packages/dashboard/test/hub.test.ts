@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { IncomingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
@@ -97,7 +99,7 @@ describe('hub', () => {
     const r = await fetch(`http://127.0.0.1:${hub.port}/`);
     expect(await r.text()).toContain('not built');
     const c = await (await fetch(`http://127.0.0.1:${hub.port}/config.json`)).json();
-    expect(c).toEqual({ etherUrl: null, proxyUrl: null });
+    expect(c).toEqual({ etherUrl: null, proxyUrl: null, topologyEditable: false });
   });
 
   const restart = async (extra: Parameters<typeof startHub>[0]): Promise<void> => {
@@ -114,7 +116,7 @@ describe('hub', () => {
   it('config.json carries proxyUrl', async () => {
     await restart({ proxyUrl: 'http://localhost:3100' });
     const c = await (await fetch(`http://127.0.0.1:${hub.port}/config.json`)).json();
-    expect(c).toEqual({ etherUrl: null, proxyUrl: 'http://localhost:3100' });
+    expect(c).toEqual({ etherUrl: null, proxyUrl: 'http://localhost:3100', topologyEditable: false });
   });
 
   it('/api/log records events, commands and offline in order', async () => {
@@ -170,5 +172,51 @@ describe('hub', () => {
     expect(first.kind).toBe('event');
     expect(first.data.node).toBe(2);
     n.ws.close();
+  });
+
+  it('relays topology changes to the ether, logs them and tells every dashboard tab', async () => {
+    const seen: { method: string; url: string; headers: IncomingHttpHeaders; body: string }[] = [];
+    const fake = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c: Buffer) => { body += c.toString(); });
+      req.on('end', () => {
+        seen.push({ method: req.method!, url: req.url!, headers: req.headers, body });
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(req.method === 'PUT'
+          ? JSON.stringify({ manual: true, text: '0-1', links: [[0, 1], [1, 0]] })
+          : JSON.stringify({ manual: false, text: '', links: [] }));
+      });
+    });
+    await new Promise<void>((r) => fake.listen(0, r));
+    const fakePort = (fake.address() as { port: number }).port;
+    try {
+      await restart({ etherControlUrl: `http://127.0.0.1:${fakePort}/`, etherControlToken: 'tok' });
+      const base = `http://127.0.0.1:${hub.port}`;
+      expect(await (await fetch(`${base}/config.json`)).json()).toMatchObject({ topologyEditable: true });
+      expect(await (await fetch(`${base}/api/topology`)).json()).toEqual({ manual: false, text: '', links: [] });
+      const ui = await open('/ui');
+      await until(() => ui.msgs.length > 0);
+      const r = await fetch(`${base}/api/topology`, { method: 'PUT', body: JSON.stringify({ text: '0-1' }) });
+      expect(r.status).toBe(200);
+      const put = seen.find((x) => x.method === 'PUT')!;
+      expect(put.url).toBe('/topology');
+      expect(put.headers.authorization).toBe('Bearer tok');
+      expect(JSON.parse(put.body)).toEqual({ text: '0-1' });
+      await until(() => ui.msgs.some((m) => JSON.parse(m).type === 'topology'));
+      const msg = ui.msgs.map((m) => JSON.parse(m) as HubToUi).find((m) => m.type === 'topology')!;
+      expect(msg).toEqual({ type: 'topology', topology: { manual: true, text: '0-1', links: [[0, 1], [1, 0]] } });
+      const log = await (await fetch(`${base}/api/log`)).json() as { entries: { kind: string; data: unknown }[] };
+      expect(log.entries.find((e) => e.kind === 'topology')?.data).toEqual({ manual: true, text: '0-1' });
+      ui.ws.close();
+    } finally {
+      await new Promise<void>((r) => fake.close(() => r()));
+    }
+  });
+
+  it('topology API is unavailable without an ether control URL', async () => {
+    const base = `http://127.0.0.1:${hub.port}`;
+    expect(await (await fetch(`${base}/config.json`)).json()).toMatchObject({ topologyEditable: false });
+    expect((await fetch(`${base}/api/topology`)).status).toBe(503);
+    expect((await fetch(`${base}/api/topology`, { method: 'PUT', body: '{"text":""}' })).status).toBe(503);
   });
 });

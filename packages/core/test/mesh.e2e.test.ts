@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildMesh, decodedBy } from './helpers.ts';
 import type { Mesh } from './helpers.ts';
+import { parseTopology } from '../src/sim/topology.ts';
 
 const line = (n: number) => Array.from({ length: n }, (_, i) => ({ x: i, y: 0 }));
 
@@ -77,5 +78,18 @@ describe('mesh end to end (fake modem)', () => {
     const ok = await mesh.world.runUntil(() => decodedBy(mesh, msgId).has(2), 240_000);
     report('late joiner', mesh);
     expect(ok).toBe(true);
+  });
+
+  it('6. manual topology: nodes in range but unlinked relay through the hub node', async () => {
+    const positions = [{ x: 0, y: 0 }, { x: 0.3, y: 0 }, { x: 0, y: 0.3 }];
+    const mesh = await buildMesh({ positions, topology: parseTopology('0-1,2') });
+    const msgId = await mesh.nodes[1]!.send('via zero');
+    const ok = await mesh.world.runUntil(() => decodedBy(mesh, msgId).has(2), 180_000);
+    report('manual topology', mesh);
+    expect(ok).toBe(true);
+    expect(mesh.nodes[2]!.state().inbox.find((m) => m.msgId === msgId)!.hops).toBe(2);
+    const heardBy2 = mesh.events.filter((e) => e.type === 'heard' && e.node === 2 && e.msgId === msgId);
+    expect(heardBy2.length).toBeGreaterThan(0);
+    expect(heardBy2.every((e) => e.type === 'heard' && e.from === 0)).toBe(true);
   });
 });

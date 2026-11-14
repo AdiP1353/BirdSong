@@ -5,7 +5,7 @@ import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import { HUB_PORT } from '@birdsong/core';
-import type { Command, HubToUi, TelemetryEvent } from '@birdsong/core';
+import type { Command, HubToUi, TelemetryEvent, TopologyView } from '@birdsong/core';
 import { createHubState } from './state.ts';
 import { createInteractionLog } from './interactionLog.ts';
 
@@ -21,6 +21,10 @@ export interface HubOptions {
   logFile?: string | null;
   /** Public base URL of the node reverse proxy (e.g. http://localhost:3100), sent to the dashboard in /config.json. */
   proxyUrl?: string | null;
+  /** Internal base URL of the ether's control API (e.g. http://ether:7080). null/absent = topology panel hidden. */
+  etherControlUrl?: string | null;
+  /** Bearer token the ether expects on PUT /topology. */
+  etherControlToken?: string | null;
 }
 
 const MIME: Record<string, string> = {
@@ -37,6 +41,8 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
   let pwaUrl = opts.pwaUrl ?? '';
   const proxyUrl = opts.proxyUrl ?? null;
   const etherUrl = opts.etherUrl ?? null;
+  const etherControlUrl = opts.etherControlUrl ? opts.etherControlUrl.replace(/\/+$/, '') : null;
+  const etherControlToken = opts.etherControlToken ?? null;
   const distDir = resolve(opts.distDir ?? join(here, '..', '..', 'dist'));
   const webDistDir = resolve(opts.webDistDir ?? join(here, '..', '..', '..', 'web', 'dist'));
   const log = createInteractionLog({ file: opts.logFile ?? null });
@@ -83,12 +89,72 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
     }
   }
 
+  function readBody(req: IncomingMessage): Promise<string> {
+    return new Promise((ok, fail) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      req.on('data', (c: Buffer) => {
+        size += c.length;
+        if (size > 16384) { fail(new Error('body too large')); req.destroy(); return; }
+        chunks.push(c);
+      });
+      req.on('end', () => ok(Buffer.concat(chunks).toString('utf8')));
+      req.on('error', fail);
+    });
+  }
+
+  /** The hub is the only client that changes the ether's topology; it relays to the ether's control API. */
+  async function topologyRoute(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const reply = (status: number, body: unknown): void => {
+      res.writeHead(status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(body));
+    };
+    if (!etherControlUrl) { reply(503, { error: 'the hub has no ether control URL (set ETHER_CONTROL_URL)' }); return; }
+    if (req.method !== 'GET' && req.method !== 'PUT') { reply(405, { error: 'use GET or PUT' }); return; }
+    let body: string | undefined;
+    if (req.method === 'PUT') {
+      try {
+        body = await readBody(req);
+      } catch (err) {
+        reply(400, { error: (err as Error).message });
+        return;
+      }
+    }
+    let r: Response;
+    try {
+      r = await fetch(`${etherControlUrl}/topology`, {
+        method: req.method,
+        body,
+        headers: req.method === 'PUT'
+          ? { 'content-type': 'application/json', ...(etherControlToken ? { authorization: `Bearer ${etherControlToken}` } : {}) }
+          : {},
+        signal: AbortSignal.timeout(3000),
+      });
+    } catch (err) {
+      reply(503, { error: `cannot reach the ether: ${(err as Error).message}` });
+      return;
+    }
+    const text = await r.text();
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { parsed = { error: text }; }
+    if (req.method === 'PUT' && r.ok) {
+      const topology = parsed as TopologyView;
+      log.append('topology', { manual: topology.manual, text: topology.text });
+      sendUi({ type: 'topology', topology });
+    }
+    reply(r.status, parsed);
+  }
+
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://x');
     const p = url.pathname;
     if (p === '/config.json') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ etherUrl, proxyUrl }));
+      res.end(JSON.stringify({ etherUrl, proxyUrl, topologyEditable: etherControlUrl !== null }));
+      return;
+    }
+    if (p === '/api/topology') {
+      await topologyRoute(req, res);
       return;
     }
     if (p === '/api/log') {
@@ -223,6 +289,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     proxyUrl: process.env.PROXY_URL || null,
     logFile: process.env.HUB_LOG_FILE || null,
     webDistDir: process.env.WEB_DIST || undefined,
+    etherControlUrl: process.env.ETHER_CONTROL_URL || null,
+    etherControlToken: process.env.ETHER_CONTROL_TOKEN || null,
   });
   console.log(`hub listening on ${hub.port}${process.env.HUB_LOG_FILE ? `, logging to ${process.env.HUB_LOG_FILE}` : ''}`);
 }

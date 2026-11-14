@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createSimWorld } from './world.ts';
 import { createFakeModem } from './fakeModem.ts';
+import { parseTopology } from './topology.ts';
 
 const opts = { sampleRate: 8000, env: 'quiet', profile: 'fast' } as const;
 
@@ -29,6 +30,29 @@ describe('sim world', () => {
     const ps = [0, 1, 2].map((x) => w.addPort({ x, y: 0 }));
     const peak = [0, 0, 0];
     ps.forEach((p, i) => { p.onInput((x) => { for (const v of x) peak[i] = Math.max(peak[i]!, Math.abs(v)); }); void p.start(); });
+    void ps[0]!.play(new Float32Array(800).fill(0.5));
+    await w.run(200);
+    expect(peak[1]).toBeGreaterThan(0.4);
+    expect(peak[2]).toBe(0);
+  });
+
+  it('manual topology overrides distance and can change live', async () => {
+    const w = createSimWorld({ sampleRate: 8000, topology: parseTopology('0>2') });
+    const ps = [0, 0.5, 9].map((x) => w.addPort({ x, y: 0 }));
+    const peak = [0, 0, 0];
+    ps.forEach((p, i) => { p.onInput((x) => { for (const v of x) peak[i] = Math.max(peak[i]!, Math.abs(v)); }); void p.start(); });
+    void ps[0]!.play(new Float32Array(800).fill(0.5));
+    await w.run(200);
+    expect(peak[1]).toBe(0);
+    expect(peak[2]).toBeGreaterThan(0.4);
+    w.setTopology(parseTopology('0-1'));
+    peak.fill(0);
+    void ps[0]!.play(new Float32Array(800).fill(0.5));
+    await w.run(200);
+    expect(peak[1]).toBeGreaterThan(0.4);
+    expect(peak[2]).toBe(0);
+    w.setTopology(null);
+    peak.fill(0);
     void ps[0]!.play(new Float32Array(800).fill(0.5));
     await w.run(200);
     expect(peak[1]).toBeGreaterThan(0.4);

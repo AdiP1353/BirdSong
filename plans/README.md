@@ -30,6 +30,7 @@ each executor in its own git worktree also works; then merge in wave order.)
 | 011 | Node page and CLI work under a path prefix (`?node=`, relative redirect, `BIRDSONG_URL`) | P1 | S | — | any | DONE |
 | 012 | Hub on 3200: serves `/app/`, interaction log + `GET /api/log`, Node pages panel | P1 | M | — | any | DONE |
 | 013 | Compose publishes only 3100 (Caddy proxy) and 3200 (hub); docs updated | P1 | M | 011, 012 | any | DONE |
+| 014 | Manual topology for the simulated mesh (ether links; live edits only via the hub) | P2 | M | 004, 012, 013 | any | DONE |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (one-line reason) | REJECTED (one-line rationale)
 
@@ -183,3 +184,4 @@ all applied. The ones that change how executors work:
 011: DONE. web 15 tests pass (9 new), node-runtime 15 pass + 1 skipped; full suite 251 passed + 1 skipped, typecheck clean, smoke ok. Code was already in the working tree when I started and matched steps 1-5; verified and committed. Added the BIRDSONG_URL note to usage() text. Not verified in a browser: the Join-screen error for an invalid ?node=.
 012: DONE. dashboard 21 tests (4 log + 5 hub new); full suite 260 passed + 1 skipped, e2e 6 passed, typecheck clean. Step 8 curl checks matched (real dashboard, real /app/, config, empty log; mock flock produced log entries). Not verified in a browser: the Node pages panel.
 013: DONE. All 9 live checks passed; message delivered node 0 to node 7 in 24 s; decoded entries 8 in file and 8 in API. Also checked in the browser: dashboard shows 8 nodes and the Node pages panel; /app/?node= and /nodes/3/ both control a node through the proxy; /ether/listen streams audio through the proxy. Final: 260 passed + 1 skipped, e2e 6, typecheck clean, smoke ok. Deviation: the first `sim-up.sh` after `docker build` hit the documented parallel-build "image already exists" error; a second run succeeded (README section 13 already describes this). Not verified: actually hearing Listen audio.
+014: DONE. Manual topology in the ether (`docker/topology.txt`, `ETHER_TOPOLOGY[_FILE]`), live edits only through the hub (`/api/topology`, token `ETHER_CONTROL_TOKEN`, proxy forwards only `/ether/listen`). 270 passed + 1 skipped, e2e 7, typecheck clean, smoke ok. Docker check: line topology set from the dashboard; node 0 to node 4 delivered at 7 hops in 57 s with the hub stopped. Details in `plans/014-manual-topology.md`.

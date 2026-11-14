@@ -1,12 +1,22 @@
+import { createServer } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { existsSync, readFileSync } from 'node:fs';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
-import { mixBlock, gainBetween, mulberry32 } from '@birdsong/core';
+import {
+  LINK_GAIN, formatTopology, gainBetween, hasLinks, hears, mixBlock, mulberry32, parseTopology,
+} from '@birdsong/core';
+import type { Topology } from '@birdsong/core';
 
 export interface EtherOptions {
   port?: number;
   range?: number;
   noiseRms?: number;
   sampleRate?: number;
+  /** Manual links (node ids); null/absent = hear by distance. */
+  topology?: Topology | null;
+  /** Bearer token for PUT /topology. null/absent = live edits disabled. */
+  controlToken?: string | null;
 }
 
 interface NodeConn { ws: WebSocket; x: number; y: number; queue: Float32Array[]; queued: number }
@@ -19,10 +29,60 @@ export function startEtherServer(opts: EtherOptions = {}): Promise<{ close(): Pr
   const noiseRms = opts.noiseRms ?? 0.002;
   const sampleRate = opts.sampleRate ?? 48000;
   const B = Math.round(BLOCK_MS * sampleRate / 1000);
-  const wss = new WebSocketServer({ port: opts.port ?? 7080 });
+  const controlToken = opts.controlToken || null;
+  let topology: Topology | null = opts.topology ?? null;
+  const server = createServer((req, res) => { void route(req, res); });
+  const wss = new WebSocketServer({ server });
   const nodes = new Map<number, NodeConn>();
   const listeners = new Set<Listener>();
   const rng = mulberry32(1);
+
+  const view = () => ({
+    manual: topology !== null,
+    text: formatTopology(topology),
+    links: topology ? topology.links.map(([a, b]) => [a, b]) : [],
+  });
+  function reply(res: ServerResponse, status: number, body: unknown): void {
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(body));
+  }
+  function readBody(req: IncomingMessage): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      req.on('data', (c: Buffer) => {
+        size += c.length;
+        if (size > 16384) { reject(new Error('body too large')); req.destroy(); return; }
+        chunks.push(c);
+      });
+      req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      req.on('error', reject);
+    });
+  }
+  async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const path = new URL(req.url ?? '/', 'http://localhost').pathname;
+    if (path !== '/topology') { reply(res, 404, { error: 'not found' }); return; }
+    if (req.method === 'GET') { reply(res, 200, view()); return; }
+    if (req.method !== 'PUT') { reply(res, 405, { error: 'use GET or PUT' }); return; }
+    if (!controlToken) { reply(res, 403, { error: 'live topology edits are disabled (no ETHER_CONTROL_TOKEN)' }); return; }
+    if (req.headers.authorization !== `Bearer ${controlToken}`) { reply(res, 401, { error: 'bad or missing control token' }); return; }
+    let text: unknown;
+    try {
+      text = (JSON.parse(await readBody(req)) as { text?: unknown } | null)?.text;
+    } catch (err) {
+      reply(res, 400, { error: (err as Error).message });
+      return;
+    }
+    if (typeof text !== 'string') { reply(res, 400, { error: 'body must be {"text": "<links>"}' }); return; }
+    try {
+      topology = parseTopology(text);
+    } catch (err) {
+      reply(res, 400, { error: (err as Error).message });
+      return;
+    }
+    console.log(topology ? `topology set: ${formatTopology(topology).replace(/\n/g, ' ')}` : 'topology cleared: distance mode');
+    reply(res, 200, view());
+  }
 
   wss.on('connection', (ws, req) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -36,6 +96,7 @@ export function startEtherServer(opts: EtherOptions = {}): Promise<{ close(): Pr
       const conn: NodeConn = { ws, x, y, queue: [], queued: 0 };
       nodes.set(id, conn);
       console.log(`node ${id} connected at (${x},${y})`);
+      if (topology && !hasLinks(topology, id)) console.warn(`node ${id} has no links in the manual topology; it will hear nothing`);
       ws.on('message', (data, isBinary) => {
         if (!isBinary) return;
         const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as Buffer);
@@ -84,10 +145,16 @@ export function startEtherServer(opts: EtherOptions = {}): Promise<{ close(): Pr
   }
 
   function processBlock() {
+    const ids = [...nodes.keys()];
     const list = [...nodes.values()];
     const tx = list.map(take);
     if (list.length > 0) {
-      const gains = list.map((a, j) => list.map((b, i) => (i === j ? 0 : gainBetween(a, b, range))));
+      const topo = topology;
+      const gains = list.map((a, j) => list.map((b, i) => {
+        if (i === j) return 0;
+        if (topo) return hears(topo, ids[j]!, ids[i]!) ? LINK_GAIN : 0;
+        return gainBetween(a, b, range);
+      }));
       const rx = mixBlock(tx, gains, noiseRms, rng);
       for (let i = 0; i < list.length; i++) sendF32(list[i]!.ws, rx[i]!);
     }
@@ -115,28 +182,57 @@ export function startEtherServer(opts: EtherOptions = {}): Promise<{ close(): Pr
   }, 10);
 
   return new Promise((resolve, reject) => {
-    wss.once('error', reject);
-    wss.once('listening', () => {
-      const addr = wss.address();
+    server.once('error', reject);
+    server.listen(opts.port ?? 7080, () => {
+      const addr = server.address();
       const port = typeof addr === 'object' && addr ? addr.port : (opts.port ?? 7080);
       console.log(`ether listening on ${port}`);
+      console.log(topology ? `topology: ${formatTopology(topology).replace(/\n/g, ' ')}` : 'topology: distance mode');
       resolve({
         port,
         close: () => new Promise<void>((res) => {
           clearInterval(timer);
           for (const c of wss.clients) c.terminate();
-          wss.close(() => res());
+          wss.close();
+          server.closeAllConnections();
+          server.close(() => res());
         }),
       });
     });
   });
 }
 
+/** Startup topology from ETHER_TOPOLOGY (inline text) or ETHER_TOPOLOGY_FILE (path; a missing file = distance mode). */
+export function topologyFromEnv(env: Record<string, string | undefined>): Topology | null {
+  const inline = env['ETHER_TOPOLOGY'];
+  const file = env['ETHER_TOPOLOGY_FILE'];
+  if (inline && file) throw new Error('set ETHER_TOPOLOGY or ETHER_TOPOLOGY_FILE, not both');
+  if (inline) return parseTopology(inline);
+  if (file) {
+    if (!existsSync(file)) return null;
+    try {
+      return parseTopology(readFileSync(file, 'utf8'));
+    } catch (err) {
+      throw new Error(`${file}: ${(err as Error).message}`);
+    }
+  }
+  return null;
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
+  let topology: Topology | null;
+  try {
+    topology = topologyFromEnv(process.env);
+  } catch (err) {
+    console.error(`ether: bad topology: ${(err as Error).message}`);
+    process.exit(2);
+  }
   await startEtherServer({
     port: Number(process.env.ETHER_PORT ?? 7080),
     range: Number(process.env.ETHER_RANGE ?? 1.2),
     noiseRms: Number(process.env.ETHER_NOISE_RMS ?? 0.002),
     sampleRate: Number(process.env.ETHER_SAMPLE_RATE ?? 48000),
+    topology,
+    controlToken: process.env.ETHER_CONTROL_TOKEN || null,
   });
 }

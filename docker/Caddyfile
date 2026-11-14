@@ -39,9 +39,15 @@
 	handle_path /nodes/7/* {
 		reverse_proxy bird7:8080
 	}
+	# Only the listen socket is public. The ether's /topology control API is reached by the hub on the
+	# compose network, never through this proxy.
 	redir /ether /ether/ 308
-	handle_path /ether/* {
+	handle /ether/listen {
+		uri strip_prefix /ether
 		reverse_proxy ether:7080
+	}
+	handle /ether/* {
+		respond "Only /ether/listen is public. Change the topology from the dashboard (port 3200)." 404
 	}
 	handle {
 		respond "BirdSong proxy. Nodes: /nodes/0/ to /nodes/7/. Simulated air: /ether/listen (WebSocket). Dashboard: port 3200." 404

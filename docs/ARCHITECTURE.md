@@ -25,10 +25,11 @@ flowchart LR
   nr <-->|"WebSocket PCM (sim mode)"| ether
   nr -->|"telemetry events (observer only)"| hub
   hub -->|"commands: mute, configure, send"| nr
+  hub -->|"topology edits (sim only)"| ether
   hub -->|"serves dashboard and join QR"| judge["judge's phone scans QR, opens the PWA"]
 ```
 
-Message data travels only as sound (real air, or the ether in simulation). The hub link carries events for the dashboard and a few commands (mute, change environment, send). Phones send no telemetry: the hub infers a "phone" node when a laptop hears a frame from a sender id it does not know.
+Message data travels only as sound (real air, or the ether in simulation). The hub link carries events for the dashboard and a few commands (mute, change environment, send). In simulation the ether owns the topology (who hears whom). It starts from `docker/topology.txt` and keeps working without the hub. The hub is the only client that can change the topology while the mesh runs. Phones send no telemetry: the hub infers a "phone" node when a laptop hears a frame from a sender id it does not know.
 
 | Package | One line |
 |---|---|
@@ -36,15 +37,15 @@ Message data travels only as sound (real air, or the ether in simulation). The h
 | `packages/node-runtime` | The laptop node: CLI flags, PulseAudio audio port, ambient player, local HTTP API and UI on port 8080, telemetry client. Runs in Docker. |
 | `packages/web` | Phone and browser PWA (Preact + Vite): a full node in the browser, plus the remote UI for container nodes (`?runtime=remote`). Deployed to GitHub Pages. |
 | `packages/dashboard` | Hub server (WebSocket relay of events and commands, port 3200; also serves the node app at `/app/` and the interaction log) and the projector UI: flock graph, feed, controls, score, join QR. |
-| `packages/ether` | The simulated air: a WebSocket service that mixes node audio by distance, used by `scripts/sim-up.sh`, CI and the fallback demo. |
+| `packages/ether` | The simulated air: a WebSocket service that mixes node audio by distance or along a manual topology (`ETHER_TOPOLOGY` / `ETHER_TOPOLOGY_FILE`; `GET`/`PUT /topology`, and PUT needs `ETHER_CONTROL_TOKEN`). Used by `scripts/sim-up.sh`, CI and the fallback demo. The parser is `packages/core/src/sim/topology.ts`. |
 
 ### Ports (simulated mesh)
 
 | Port | Process | Serves |
 |---|---|---|
-| 3100 | proxy (Caddy) | `/nodes/<id>/` to each node, `/ether/` to the simulated air |
-| 3200 | hub | dashboard, node app `/app/`, WebSockets `/node` and `/ui`, `/config.json`, `/api/log` |
-| internal | ether 7080, nodes 8080 | reached by service name on the compose network, not published |
+| 3100 | proxy (Caddy) | `/nodes/<id>/` to each node, `/ether/listen` to the simulated air (only that path) |
+| 3200 | hub | dashboard, node app `/app/`, WebSockets `/node` and `/ui`, `/config.json`, `/api/log`, `/api/topology` (relayed to the ether) |
+| internal | ether 7080, nodes 8080 | reached by service name on the compose network, not published; the hub uses `http://ether:7080/topology` |
 
 ## Seams
 
@@ -62,9 +63,9 @@ Counts from the last run on this branch:
 
 | Level | Command | Result |
 |---|---|---|
-| Unit and component tests | `npm test` | 44 files, 242 passed, 1 skipped (the skip is the live PulseAudio test, enabled with `BIRDSONG_PULSE_TEST=1`) |
-| of which per package | | core 208, dashboard 12, node-runtime 15 (+1 skipped), web 6, ether 1 |
-| Mesh end-to-end | `npm run test:e2e` | 2 files, 6 passed: 5 fake-modem mesh cases (multi-hop line, two relays killed, originator dies after its burst, two writers, late joiner) and 1 real-modem three-node case |
+| Unit and component tests | `npm test` | 46 files, 270 passed, 1 skipped (the skip is the live PulseAudio test, enabled with `BIRDSONG_PULSE_TEST=1`) |
+| of which per package | | core 213, dashboard 23, node-runtime 15 (+1 skipped), web 15, ether 4 |
+| Mesh end-to-end | `npm run test:e2e` | 2 files, 7 passed: 6 fake-modem mesh cases (multi-hop line, two relays killed, originator dies after its burst, two writers, late joiner, manual topology) and 1 real-modem three-node case |
 | Typecheck | `npm run typecheck` | all workspaces |
 | Smoke test of the sim stack | `bash scripts/smoke-ether.sh` | ether + two nodes, sends a message and waits for it, about 8 s (needs no Docker) |
 

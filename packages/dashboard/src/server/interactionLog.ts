@@ -2,13 +2,16 @@ import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Command, TelemetryEvent } from '@birdsong/core';
 
-/** 'event' = telemetry from a node, 'command' = sent from a dashboard tab, 'offline' = a node's socket closed. */
-export type LogKind = 'event' | 'command' | 'offline';
+/**
+ * 'event' = telemetry from a node, 'command' = sent from a dashboard tab, 'offline' = a node's socket closed,
+ * 'topology' = the ether's topology was changed from the dashboard.
+ */
+export type LogKind = 'event' | 'command' | 'offline' | 'topology';
 export interface LogEntry {
   seq: number;
   t: number;
   kind: LogKind;
-  data: TelemetryEvent | Command | { node: number };
+  data: TelemetryEvent | Command | { node: number } | { manual: boolean; text: string };
 }
 export interface InteractionLogOptions {
   /** NDJSON file to append to; null or absent = memory only. */

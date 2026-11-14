@@ -1,0 +1,17 @@
+# Topology of the simulated mesh: which node can hear which.
+# The ether reads this file at startup (ETHER_TOPOLOGY_FILE). Restart the ether to reload it:
+#   docker compose -f docker/compose.sim.yml restart ether
+# While the mesh runs, change it from the dashboard's Topology panel (http://localhost:3200).
+#
+# No links listed (the default) = nodes hear each other by distance (ETHER_RANGE).
+# One or more links = only listed links carry sound; positions and range are ignored.
+#
+#   0-1,2   two-way links 0<->1 and 0<->2
+#   4>5     one-way link: 5 hears 4, 4 does not hear 5
+#   # ...   comment
+#
+# Example: a line 0-1-2-3 with a branch 1-4 and a one-way link into 5.
+# 0-1
+# 1-2,4
+# 2-3
+# 4>5

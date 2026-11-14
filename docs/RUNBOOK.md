@@ -64,6 +64,7 @@ Check: all nodes show as online on the dashboard.
 
 - **Room too loud**: set everything to the `fast` profile (dashboard Profile menu) and raise the volume. Then re-check the end-to-end isolation test.
 - **Still failing**: run the simulated mesh and play it through the projector speakers: `bash scripts/sim-up.sh` (8 nodes + ether + hub in Docker). Open `http://localhost:3200` and press "Listen to the simulated air" (it connects through the proxy to `ws://localhost:3100/ether/listen`). The Listen button is implemented but was only tested against the mock flock, not a live ether, so try it once the night before. The nodes' pages are `http://localhost:3100/nodes/0/` to `http://localhost:3100/nodes/7/`. Send a test message with `curl -X POST localhost:3100/nodes/0/api/send -H 'content-type: application/json' -d '{"text":"hello"}'`.
+- **Show a specific shape in the simulated mesh** (for example a long line, so that a message must take many hops): type the links in the dashboard's Topology panel (for example `0-1 1-2 2-3 3-7 7-6 6-5 5-4`) and press Apply, or put them in `docker/topology.txt` before `sim-up.sh`. "Use distance" returns to the grid. See README section 3, "Choosing the topology".
 - **A phone will not join**: use the laptop's local UI at `http://localhost:8080/?runtime=remote`.
 - **Dashboard shows "reconnecting"** right after startup: reload the page once.
 - **Fake messages or no messages**: check that every node shows the same environment and profile and the same passphrase.

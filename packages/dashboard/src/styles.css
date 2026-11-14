@@ -58,6 +58,16 @@ button:disabled { opacity: 0.4; cursor: default; }
 .node-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
 .node-id { width: 48px; font-weight: 700; }
 .node-row input[type=range] { flex: 1; }
+.topology textarea {
+  width: 100%; box-sizing: border-box; font: 16px/1.4 ui-monospace, monospace; color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 8%, var(--bg)); border: 2px solid color-mix(in srgb, var(--fg) 40%, transparent);
+  border-radius: 8px; padding: 6px 8px; resize: vertical;
+}
+.topology textarea:focus { outline: none; border-color: var(--accent); }
+.topology .hint { font-size: 13px; margin: 4px 0 8px; }
+.topology .error { margin-top: 6px; color: #ff8a80; font-size: 14px; }
+.badge { font-size: 13px; font-weight: 600; vertical-align: middle; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; opacity: 0.7; }
+.badge.on { color: var(--accent); opacity: 1; }
 .feed { flex: 1; min-height: 140px; overflow-y: auto; }
 .msg { padding: 6px 8px; border-radius: 8px; cursor: pointer; border: 2px solid transparent; margin-bottom: 4px; }
 .msg.focus { border-color: var(--accent); }

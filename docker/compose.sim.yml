@@ -1,6 +1,8 @@
 # Simulated 8-node mesh. Start with: bash scripts/sim-up.sh
 # Published on the host: 3200 = hub (dashboard, node app /app/, /api/log), 3100 = proxy (/nodes/<id>/, /ether/).
 # The ether and the nodes publish no ports; they reach each other by service name.
+# Topology (who hears whom): docker/topology.txt at startup; live changes only through the hub (dashboard).
+x-ether-token: &etherToken sim-topology-token
 x-node: &node
   image: birdsong-node
   build:
@@ -20,6 +22,10 @@ services:
       ETHER_PORT: "7080"
       ETHER_RANGE: "1.5"
       ETHER_NOISE_RMS: "0.002"
+      ETHER_TOPOLOGY_FILE: /etc/birdsong/topology.txt
+      # Only the hub holds this token, and the proxy does not forward /ether/topology.
+      ETHER_CONTROL_TOKEN: *etherToken
+    volumes: ["./topology.txt:/etc/birdsong/topology.txt:ro"]
   hub:
     image: birdsong-node
     build:
@@ -33,6 +39,9 @@ services:
       ETHER_URL: ws://localhost:3100/ether
       PROXY_URL: http://localhost:3100
       HUB_LOG_FILE: /app/logs/interactions.ndjson
+      # Internal: the hub relays topology changes from the dashboard to the ether.
+      ETHER_CONTROL_URL: http://ether:7080
+      ETHER_CONTROL_TOKEN: *etherToken
     volumes: ["../logs:/app/logs"]
     ports: ["3200:3200"]
   proxy:

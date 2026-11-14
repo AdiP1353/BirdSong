@@ -4,6 +4,8 @@ import type { VirtualClock } from '../util/clock.ts';
 import { mulberry32 } from '../util/prng.ts';
 import { gainBetween, mixBlock } from './mix.ts';
 import type { Position } from './mix.ts';
+import { LINK_GAIN, hears } from './topology.ts';
+import type { Topology } from './topology.ts';
 
 export interface SimWorldOptions {
   sampleRate: number;        // use 8000 with the fake modem to keep tests fast
@@ -11,6 +13,8 @@ export interface SimWorldOptions {
   range?: number;            // default 1.2
   noiseRms?: number;         // default 0
   seed?: number;             // default 1
+  /** Manual links between port indexes; null/absent = hear by distance. */
+  topology?: Topology | null;
 }
 export interface SimPort extends AudioPort {
   readonly index: number;
@@ -23,6 +27,8 @@ export interface SimWorld {
   addPort(pos: Position): SimPort;
   /** A dead port plays nothing and hears nothing. play() on a dead port still resolves after the audio's duration. */
   setAlive(index: number, alive: boolean): void;
+  /** Replace the manual topology (port indexes); null = hear by distance. */
+  setTopology(t: Topology | null): void;
   /** Called after every block; the world awaits all of them before continuing. */
   onSettle(fn: () => Promise<void>): void;
   /** Simulate `ms` of time. */
@@ -59,10 +65,14 @@ export function createSimWorld(opts: SimWorldOptions): SimWorld {
   const ports: PortState[] = [];
   const hooks: Array<() => Promise<void>> = [];
   let gains: number[][] = [];
+  let topology: Topology | null = opts.topology ?? null;
 
   function recompute() {
-    gains = ports.map((p, j) => ports.map((q, i) =>
-      (i === j || !p.alive || !q.alive) ? 0 : gainBetween(p.pos, q.pos, range)));
+    gains = ports.map((p, j) => ports.map((q, i) => {
+      if (i === j || !p.alive || !q.alive) return 0;
+      if (topology) return hears(topology, j, i) ? LINK_GAIN : 0;
+      return gainBetween(p.pos, q.pos, range);
+    }));
   }
 
   async function block() {
@@ -136,6 +146,10 @@ export function createSimWorld(opts: SimWorldOptions): SimWorld {
     },
     setAlive(index, alive) {
       ports[index]!.alive = alive;
+      recompute();
+    },
+    setTopology(t) {
+      topology = t;
       recompute();
     },
     onSettle(fn) { hooks.push(fn); },

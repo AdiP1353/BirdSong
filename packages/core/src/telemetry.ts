@@ -27,11 +27,22 @@ export interface NodeSnapshot {
   lastSeenAt: number;
 }
 
+/** The simulated air's current topology, as the ether reports it (GET /topology). */
+export interface TopologyView {
+  /** false = nodes hear by distance; true = only `links` carry sound. */
+  manual: boolean;
+  /** Canonical text form ("0-1" two-way, "4>5" one-way, one per line); "" in distance mode. */
+  text: string;
+  /** Directed links [speaker, listener]. */
+  links: [number, number][];
+}
+
 /** Messages from the dashboard hub to a dashboard browser tab. */
 export type HubToUi =
   | { type: 'snapshot'; nodes: NodeSnapshot[]; recent: TelemetryEvent[]; join: { pwaUrl: string; passphrase: string } }
   | { type: 'event'; event: TelemetryEvent }
-  | { type: 'nodeOffline'; node: number };
+  | { type: 'nodeOffline'; node: number }
+  | { type: 'topology'; topology: TopologyView };
 
 /** Default ports. */
 export const HUB_PORT = 3200;

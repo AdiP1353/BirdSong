@@ -1,6 +1,6 @@
 import { createBirdNode } from '../src/node/index.ts';
 import { createFakeModem, createSimWorld } from '../src/sim/index.ts';
-import type { Position, SimWorld } from '../src/sim/index.ts';
+import type { Position, SimWorld, Topology } from '../src/sim/index.ts';
 import { mulberry32 } from '../src/util/prng.ts';
 import { DEFAULT_NODE_CONFIG } from '../src/types.ts';
 import type { BirdNode, BirdNodeOptions, ModemFactory } from '../src/types.ts';
@@ -25,6 +25,7 @@ export async function buildMesh(opts: {
   noiseRms?: number;
   env?: EnvName;
   profile?: ProfileName;
+  topology?: Topology | null;
 }): Promise<Mesh> {
   const seed = opts.seed ?? 1;
   const world = createSimWorld({
@@ -32,6 +33,7 @@ export async function buildMesh(opts: {
     range: opts.range ?? 1.2,
     noiseRms: opts.noiseRms ?? 0,
     seed,
+    topology: opts.topology ?? null,
   });
   const events: TelemetryEvent[] = [];
   const nodes: BirdNode[] = [];

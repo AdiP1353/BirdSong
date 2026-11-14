@@ -1,4 +1,4 @@
-import type { Command, HubToUi, NodeSnapshot, TelemetryEvent } from '@birdsong/core';
+import type { Command, HubToUi, NodeSnapshot, TelemetryEvent, TopologyView } from '@birdsong/core';
 import { createHubState } from './server/state.ts';
 import type { HubState } from './server/state.ts';
 
@@ -7,6 +7,8 @@ export interface Store {
   join: { pwaUrl: string; passphrase: string };
   connected: boolean;
   focus: number | null;
+  /** The ether's topology; null until the Topology panel loads it. */
+  topology: TopologyView | null;
   version: number;
 }
 
@@ -17,6 +19,7 @@ export const store: Store = {
   join: { pwaUrl: 'http://localhost:3200/app/', passphrase: 'demo-flock' },
   connected: false,
   focus: null,
+  topology: null,
   version: 0,
 };
 
@@ -35,6 +38,11 @@ function changed(): void {
 
 export function setFocus(msgId: number | null): void {
   store.focus = msgId;
+  changed();
+}
+
+export function setTopology(t: TopologyView): void {
+  store.topology = t;
   changed();
 }
 
@@ -59,6 +67,8 @@ export function connect(): void {
       store.state.apply(msg.event, msg.event.t);
     } else if (msg.type === 'nodeOffline') {
       store.state.markOffline(msg.node, Date.now());
+    } else if (msg.type === 'topology') {
+      store.topology = msg.topology;
     }
     changed();
   };

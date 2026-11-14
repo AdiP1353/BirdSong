@@ -62,7 +62,21 @@ Stop the mesh:
 docker compose -f docker/compose.sim.yml down
 ```
 
-The mesh publishes two ports on your machine. **3200** is the hub: the dashboard, the node app at `/app/`, and the interaction log at `/api/log` (also written to `logs/interactions.ndjson`). **3100** is a proxy: `/nodes/<id>/` reaches node `<id>` and `/ether/` reaches the simulated air. The nodes and the ether have no ports of their own.
+The mesh publishes two ports on your machine. **3200** is the hub: the dashboard, the node app at `/app/`, and the interaction log at `/api/log` (also written to `logs/interactions.ndjson`). **3100** is a proxy: `/nodes/<id>/` reaches node `<id>` and `/ether/listen` reaches the simulated air. The nodes and the ether have no ports of their own.
+
+### Choosing the topology
+
+By default, nodes in the simulated mesh hear each other by distance (`ETHER_RANGE`, with the 4 x 2 grid from `docker/compose.sim.yml`). To state the links yourself, list them in [docker/topology.txt](docker/topology.txt):
+
+```
+0-1,2     # two-way links 0<->1 and 0<->2
+1-3
+4>5       # one-way link: 5 hears 4, 4 does not hear 5
+```
+
+When the file lists at least one link, sound travels only along the listed links (at the same loudness as two neighbours 1 unit apart), and positions and range are ignored. When the file is empty or has only comments, the nodes hear by distance. The ether reads the file at startup (`docker compose -f docker/compose.sim.yml restart ether` reloads it).
+
+To change the topology while the mesh runs, use the dashboard's **Topology** panel. The hub is the only service that can change it: it holds the ether's control token (`ETHER_CONTROL_TOKEN`), and the proxy does not forward `/ether/topology`. If the hub is stopped, the mesh keeps the topology it has. When the ether restarts, it goes back to the file. Without Docker, set `ETHER_TOPOLOGY='0-1,2'` (inline) or `ETHER_TOPOLOGY_FILE=<path>` on `packages/ether/src/server.ts`. The topology applies only to the simulated air. Real laptops can use `--neighbors` to ignore senders.
 
 If Docker is not available, `bash scripts/smoke-ether.sh` runs a two-node version natively (about 8 seconds) and checks that a message arrives.
 
@@ -227,7 +241,8 @@ Start it with `bash scripts/sim-up.sh` (simulated mesh) or by running the hub yo
 - **Messages:** each decoded message with its author and the nodes that decoded it (`#node (hops)`, plus the seconds since the first decode). Click a message to follow it in the graph.
 - **Join the flock:** the QR code and link for phones, see [section 5](#5-join-with-a-phone).
 - **Node pages:** only for the simulated mesh. A link to each online container node's page (served by the hub at `/app/`, talking to the node through the proxy).
-- **Interaction log:** the hub records every node event, every dashboard command and every node disconnect. `GET /api/log?since=<seq>&limit=<n>` returns `{ entries, next }`; each entry is `{ seq, t, kind: event|command|offline, data }`. With `HUB_LOG_FILE` set (the simulated mesh uses `logs/interactions.ndjson`) it is also written as one JSON object per line, and the file rotates to `.1` at 10 MiB.
+- **Interaction log:** the hub records every node event, every dashboard command and every node disconnect. `GET /api/log?since=<seq>&limit=<n>` returns `{ entries, next }`; each entry is `{ seq, t, kind: event|command|offline|topology, data }`. With `HUB_LOG_FILE` set (the simulated mesh uses `logs/interactions.ndjson`) it is also written as one JSON object per line, and the file rotates to `.1` at 10 MiB.
+- **Topology:** only for the simulated mesh (shown when the hub has `ETHER_CONTROL_URL`). It shows whether the ether is in distance or manual mode, and the current links in the format of [section 3](#choosing-the-topology). Edit the text and press **Apply**, or press **Use distance** to go back to distance mode. Every open dashboard updates, and the change goes in the interaction log as a `topology` entry.
 - **Listen to the simulated air:** only for the simulated mesh. It plays what the ether carries through the page's speakers, so a projector can play the flock. Press again ("Stop listening") to stop. In our check the button toggled and the page stayed connected; we could not hear the audio output.
 
 The dashboard sees phones only indirectly: they send no telemetry, so the hub infers a phone when a laptop hears a frame from a sender id it does not know.
