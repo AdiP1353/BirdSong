@@ -18,7 +18,7 @@ each executor in its own git worktree also works; then merge in wave order.)
 | Plan | Title | Priority | Effort | Depends on | Owner | Status |
 |------|-------|----------|--------|------------|-------|--------|
 | 001 | Scaffold monorepo + shared contracts | P1 | M | — | both | DONE |
-| 002 | Codec: crypto, fountain, frames, Reed–Solomon | P1 | M | 001 | P2 | TODO |
+| 002 | Codec: crypto, fountain, frames, Reed–Solomon | P1 | M | 001 | P2 | DONE |
 | 003 | Modem: chirp synth + noisy-room decoder | P1 | L | 001 | P1 | TODO |
 | 004 | Simulated air: in-process world + ether service | P1 | M | 001 | P1 | TODO |
 | 009 | Dashboard hub + live UI (built against a mock flock) | P1 | M | 001 | P2 | TODO |
