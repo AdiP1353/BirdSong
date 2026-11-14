@@ -1,3 +1,15 @@
 import { defineConfig } from 'vite';
 import preact from '@preact/preset-vite';
-export default defineConfig({ base: './', plugins: [preact()] });
+import { VitePWA } from 'vite-plugin-pwa';
+
+export default defineConfig({
+  base: './',
+  plugins: [
+    preact(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      manifest: false,
+      workbox: { globPatterns: ['**/*.{js,css,html,svg,webmanifest}'] },
+    }),
+  ],
+});
