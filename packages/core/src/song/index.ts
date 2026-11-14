@@ -8,9 +8,5 @@ export interface SongOptions {
 }
 export interface DecodedSongMessage { msgId: number; text: string; alias: string }
 
-export function renderMessageSong(_opts: SongOptions & { text: string; alias: string; species: number; sender: number }): Promise<Float32Array> {
-  throw new Error('not implemented: plan 006');
-}
-export function decodeSong(_pcm: Float32Array, _opts: SongOptions): Promise<DecodedSongMessage[]> {
-  throw new Error('not implemented: plan 006');
-}
+export { renderMessageSong } from './song.ts';
+export { decodeSong } from './decode.ts';
