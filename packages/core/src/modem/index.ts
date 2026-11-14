@@ -1,5 +1,2 @@
-import type { Modem, ModemOptions } from '../types.ts';
-
-export function createModem(_opts: ModemOptions): Modem {
-  throw new Error('not implemented: plan 003');
-}
+export { createModem } from './modem.ts';
+export { renderChirp, renderFrame } from './synth.ts';
