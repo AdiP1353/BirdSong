@@ -23,7 +23,7 @@ each executor in its own git worktree also works; then merge in wave order.)
 | 004 | Simulated air: in-process world + ether service | P1 | M | 001 | P1 | TODO |
 | 009 | Dashboard hub + live UI (built against a mock flock) | P1 | M | 001 | P2 | TODO |
 | 005 | Node engine: gossip, Trickle, mesh e2e tests | P1 | L | 002, 004 (003 for its last step) | P2 | TODO |
-| 006 | Message songs + ambient camouflage beds | P2 | M | 001 (ambient); 002, 003 (song) | P1 | TODO |
+| 006 | Message songs + ambient camouflage beds | P2 | M | 001 (ambient); 002, 003 (song) | P1 | IN PROGRESS (ambient done, song waiting on 002/003) |
 | 007 | Node runtime, PulseAudio, Docker, compose mesh | P1 | L | 002, 003, 004, 005 | P1 | TODO |
 | 008 | Phone PWA + container local UI + Pages deploy | P1 | L | 003, 005 (006 optional) | P2 | TODO |
 | 010 | Docs: protocol spec, architecture, runbook, Devpost, pitch outline | P2 | M | most others | both | TODO |
@@ -134,3 +134,4 @@ all applied. The ones that change how executors work:
 
 (append below: `NNN: <note>`)
 001: vite-plugin-pwa installed OK (v2.0.0). vite 8, vitest 5.1, TypeScript 5.8.3. 15 core tests.
+006: Steps 1-3 (ambient) done: dsp.ts, beds.ts, tests pass (band check >= 25 dB for jungle/coast/city, no components dropped). Step 3 modem test is written as describe.skip in ambient/ambientModem.test.ts (`// enable when plan 003 is DONE`) with the spec in comments; remove the skip and implement it once the modem exists. dsp loopCrossfade test uses a 3.1 Hz sine, because 3 Hz over 2 s is an exact integer number of cycles and already loops. Steps 4-7 (song, samples) remain.
