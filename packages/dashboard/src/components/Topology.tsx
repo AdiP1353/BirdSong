@@ -70,7 +70,7 @@ export function Topology(props: { topology: TopologyView | null }) {
       <div class="row presets">
         {TOPOLOGY_PRESETS.map((p) => (
           <button
-            key={p.id} disabled={busy} title={p.description}
+            key={p.id} disabled={busy} data-tip={p.description}
             class={active?.id === p.id ? 'on' : ''}
             onClick={() => void apply(p.text)}
           >

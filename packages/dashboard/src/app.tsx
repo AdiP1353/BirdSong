@@ -67,22 +67,25 @@ export function App() {
     <div class={`app ${off ? 'is-off' : ''}`} style={{ '--bg': theme.bg, '--fg': theme.fg, '--accent': theme.accent }}>
       <header class="stats">
         <h1>BirdSong</h1>
-        <span class="stat"><b>{s.online}</b> online</span>
-        <span class="stat"><b>{s.heard}</b> frames heard</span>
-        <span class="stat"><b>{s.crc}</b> CRC failures</span>
-        <span class="stat"><b>{s.delivered}</b> delivered</span>
+        <span class="stat" data-tip="Birds the hub can see right now."><b>{s.online}</b> online</span>
+        <span class="stat" data-tip="Frames (one chirped packet, about 3 s) that a bird received intact."><b>{s.heard}</b> frames heard</span>
+        <span class="stat" data-tip="Frames that arrived too damaged to repair, or sounds mistaken for a frame. They are thrown away."><b>{s.crc}</b> CRC failures</span>
+        <span class="stat" data-tip="Messages that at least one bird has decoded and read."><b>{s.delivered}</b> delivered</span>
         <div class="seg" role="group" aria-label="View">
-          <button class={view === 'graph' ? 'on' : ''} disabled={off} onClick={() => pickView('graph')}>Graph</button>
-          <button class={view === 'birds' ? 'on' : ''} disabled={off} onClick={() => pickView('birds')}>Birds</button>
+          <button class={view === 'graph' ? 'on' : ''} disabled={off} data-tip="The flock as a graph: who hears whom, and messages hopping between birds." onClick={() => pickView('graph')}>Graph</button>
+          <button class={view === 'birds' ? 'on' : ''} disabled={off} data-tip="Every bird's own screen, with its inbox and a send box." onClick={() => pickView('birds')}>Birds</button>
         </div>
         <AirControls />
         <button
           class={`stop ${store.stopped ? 'stopped' : ''}`} disabled={busy || off || !store.connected} onClick={toggleStopped}
-          title={store.stopped ? 'Unmute every bird' : 'Mute every bird: they stop singing (and listening) until you press Start'}
+          data-tip={store.stopped ? 'Unmute every bird. They carry on with messages still in flight.' : 'Mute every bird: they stop singing and listening until you press Start.'}
         >
           {store.stopped ? '▶ Start birds' : '■ Stop birds'}
         </button>
-        <button class={`power ${off ? 'off' : ''}`} disabled={busy || !store.connected} onClick={toggleDisabled}>
+        <button
+          class={`power ${off ? 'off' : ''}`} disabled={busy || !store.connected} onClick={toggleDisabled}
+          data-tip={off ? 'Reconnect the dashboard to the birds.' : 'Cut the dashboard off from every bird. They keep singing and delivering by sound alone.'}
+        >
           {off ? '⏻ Restore the network' : '✂ Cut the internet'}
         </button>
         <span class={`conn ${store.connected ? 'ok' : 'bad'}`}>{store.connected ? (off ? 'off' : 'live') : 'reconnecting'}</span>
@@ -109,8 +112,8 @@ export function App() {
               <FlockGraph nodes={nodes} events={events} focus={focus} />
               <div class="bottom">
                 <div class="seg bottom-pick" role="group" aria-label="Lower panel">
-                  <button class={bottom === 'score' ? 'on' : ''} onClick={() => pickBottom('score')}>Score</button>
-                  <button class={bottom === 'air' ? 'on' : ''} onClick={() => pickBottom('air')}>Air</button>
+                  <button class={bottom === 'score' ? 'on' : ''} data-tip="The notes being sung, as a piano roll." onClick={() => pickBottom('score')}>Score</button>
+                  <button class={bottom === 'air' ? 'on' : ''} data-tip="A large spectrogram of the air, with the camouflage trick." onClick={() => pickBottom('air')}>Air</button>
                 </div>
                 {bottom === 'score'
                   ? <Score nodes={nodes} events={events} env={env} />

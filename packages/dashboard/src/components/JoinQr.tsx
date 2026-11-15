@@ -33,8 +33,8 @@ export function JoinQr(props: { join: { pwaUrl: string; passphrase: string }; en
   return (
     <div class="panel qr">
       <div class="seg center" role="group" aria-label="QR code">
-        <button class={mode === 'judge' ? 'on' : ''} onClick={() => setMode('judge')}>Send a message</button>
-        <button class={mode === 'bird' ? 'on' : ''} onClick={() => setMode('bird')}>Join as a bird</button>
+        <button class={mode === 'judge' ? 'on' : ''} data-tip="A phone page for typing a message that one bird then sings. The phone must be on the same Wi-Fi." onClick={() => setMode('judge')}>Send a message</button>
+        <button class={mode === 'bird' ? 'on' : ''} data-tip="Turns the phone into a real bird that listens and sings through its own microphone and speaker." onClick={() => setMode('bird')}>Join as a bird</button>
       </div>
       <h2>{mode === 'judge' ? 'Scan, type, and watch it fly' : 'Join the flock'}</h2>
       {img ? <img src={img} width={320} height={320} alt={mode === 'judge' ? 'QR code of the message page' : 'Join QR code'} /> : <div class="qr-ph" />}

@@ -43,8 +43,8 @@ export function SpyPanel(props: { events: TelemetryEvent[]; focus: number | null
               heard {cap.frames} frame{cap.frames === 1 ? '' : 's'} from bird{cap.senders.length === 1 ? '' : 's'} {cap.senders.map((s) => `#${s}`).join(', ')}
               {cap.envelope ? '' : ` · needs about ${cap.k} to rebuild the message`}
             </div>
-            <div class="spy-text scrambled">{scramble(cap.ciphertext)}</div>
-            <label class="spy-guess">
+            <div class="spy-text scrambled" data-tip="The encrypted bytes of the message, one character per byte. This is all a listener without the passphrase gets.">{scramble(cap.ciphertext)}</div>
+            <label class="spy-guess" data-tip="Type any passphrase. Only the flock's real one opens the message.">
               Spy tries a passphrase
               <input type="text" value={guess} spellcheck={false} aria-label="Passphrase guess" onInput={(e) => setGuess(e.currentTarget.value)} />
             </label>

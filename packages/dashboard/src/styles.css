@@ -47,7 +47,7 @@ button, select {
   font: inherit; font-size: 18px; color: var(--fg); background: color-mix(in srgb, var(--fg) 12%, var(--bg));
   border: 2px solid color-mix(in srgb, var(--fg) 40%, transparent); border-radius: 8px; padding: 4px 12px; cursor: pointer;
 }
-button:hover:not(:disabled) { border-color: var(--accent); }
+@media (hover: hover) { button:hover:not(:disabled) { border-color: var(--accent); } }
 button:disabled { opacity: 0.4; cursor: default; }
 .kill { width: 100%; margin: 8px 0; padding: 10px; font-weight: 700; background: #8e1b1b; border-color: #ff8a80; color: #fff; }
 .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
@@ -108,7 +108,7 @@ canvas.scope.big { width: 360px; max-width: 40%; height: 90px; }
 .bird-win { position: relative; min-height: 180px; border-radius: 10px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--fg) 25%, transparent); background: #0d1f14; }
 .bird-win iframe { width: 100%; height: 100%; border: 0; display: block; }
 .bird-open { position: absolute; right: 6px; bottom: 4px; color: var(--accent); text-decoration: none; font-size: 15px; opacity: 0.7; }
-.bird-open:hover { opacity: 1; }
+@media (hover: hover) { .bird-open:hover { opacity: 1; } }
 .birds-empty { flex: 1; display: grid; place-items: center; }
 
 /* dashboard turned off */
@@ -130,7 +130,7 @@ canvas.scope.big { width: 360px; max-width: 40%; height: 90px; }
 .bird-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 16px; padding: 1px 2px 1px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent); }
 .bird-chip i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .bird-chip .x { font-size: 15px; line-height: 1; padding: 1px 7px; border-radius: 999px; border-width: 1px; }
-.bird-chip .x:hover:not(:disabled) { border-color: #ff8a80; color: #ff8a80; }
+@media (hover: hover) { .bird-chip .x:hover:not(:disabled) { border-color: #ff8a80; color: #ff8a80; } }
 .flock-editor .add { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; align-items: flex-start; }
 .flock-editor .hint { font-size: 14px; }
 .flock-editor .error { color: #ff8a80; font-size: 14px; margin-top: 6px; }
@@ -147,7 +147,7 @@ canvas.scope.big { width: 360px; max-width: 40%; height: 90px; }
 .noise .gain { display: flex; flex-direction: column; gap: 2px; font-size: 15px; }
 .noise .gain input { width: 100%; }
 .noise .meter { position: relative; height: 10px; border-radius: 999px; background: color-mix(in srgb, var(--fg) 12%, transparent); overflow: hidden; }
-.noise .meter .fill { height: 100%; transition: width 0.1s linear; }
+.noise .meter .fill { height: 100%; width: 100%; transform-origin: left; transition: transform 100ms linear; }
 .noise .meter .mark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--fg); opacity: 0.6; }
 .noise .fill.ok { background: #7be07b; }
 .noise .fill.warn { background: #ffd54f; }
@@ -218,3 +218,66 @@ html.judge-page, html.judge-page body { height: auto; }
 .jbird i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .pcmscope canvas { width: 100%; height: 150px; border-radius: 6px; background: #0a0c10; display: block; }
 .judge a { color: var(--accent); }
+
+/* ------------------------------------------------------------------ polish and motion */
+:root {
+  color-scheme: dark; /* dark scrollbars and form controls */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --shadow-panel: 0 1px 2px rgb(0 0 0 / 0.3), 0 10px 28px -14px rgb(0 0 0 / 0.6);
+}
+button, select, label, a, input { -webkit-tap-highlight-color: transparent; }
+
+/* Surfaces: depth from a layered shadow, a hairline border for structure (and for forced-colors mode).
+   Outer radius = inner radius + padding: nested cards are 6px inside 10px of padding. */
+.panel { border-radius: 16px; border-color: color-mix(in srgb, var(--fg) 14%, transparent); box-shadow: var(--shadow-panel); }
+.spy-col, .msg, canvas.scope, .pcmscope canvas, .noise .meter { border-radius: 6px; }
+.bird-win { border-radius: 12px; box-shadow: var(--shadow-panel); }
+.right, .nodes, .feed { overscroll-behavior: contain; }
+.nodes { overflow-x: hidden; }
+/* Icon-led header buttons: a little less padding on the icon side so the label looks centred. */
+.stop, .power { padding-left: 10px; }
+
+/* Interactive state: transitions (they reverse mid-flight), named properties only. */
+button, .switch, .pick, .jbird, .msg, .badge {
+  transition-property: scale, border-color, background-color, color, opacity;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+/* Press feedback. Segmented buttons opt out: scaling one half opens a seam in the joined control. */
+button:not(:disabled):active { scale: 0.96; }
+.seg button:not(:disabled):active, .bird-chip .x:not(:disabled):active { scale: 1; }
+.jbird { transition-duration: 200ms; }
+
+/* Tooltip (src/tooltip.ts): one fixed layer, grows from the side that faces its trigger. */
+.tip {
+  position: fixed; left: 0; top: 0; z-index: 50; max-width: 280px; padding: 6px 10px; border-radius: 8px;
+  font-size: 14px; line-height: 1.35; text-wrap: pretty; background: #0b0d10; color: #f2f2f2;
+  border: 1px solid transparent; box-shadow: 0 0 0 1px rgb(255 255 255 / 0.14), 0 8px 24px rgb(0 0 0 / 0.55);
+  pointer-events: none; opacity: 0;
+  transition: opacity 100ms var(--ease-out), scale 100ms var(--ease-out); /* exit: shorter than the enter */
+}
+.tip.show { opacity: 1; transition-duration: 150ms; }
+[data-tip] { cursor: help; }
+button[data-tip], label[data-tip], .seg [data-tip] { cursor: pointer; }
+
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes rise-in { from { opacity: 0; translate: 0 12px; filter: blur(4px); } }
+@keyframes drop-in { from { opacity: 0; translate: 0 -12px; filter: blur(4px); } }
+
+/* First load only (a rare moment): the side column and the phone page arrive in order. Views switched with the
+   Graph/Birds and Score/Air tabs do not animate; those are frequent. */
+.right > .panel, .judge > section, .off-banner { animation: fade-in 200ms ease-out both; }
+@media (prefers-reduced-motion: no-preference) {
+  .tip { scale: 0.96; }
+  .tip.show { scale: 1; }
+  .right > .panel, .judge > section { animation: rise-in 300ms var(--ease-out) both; }
+  .right > .panel:nth-child(2), .judge > section:nth-of-type(2) { animation-delay: 60ms; }
+  .right > .panel:nth-child(3), .judge > section:nth-of-type(3) { animation-delay: 120ms; }
+  .right > .panel:nth-child(4), .judge > section:nth-of-type(4) { animation-delay: 180ms; }
+  .right > .panel:nth-child(n + 5) { animation-delay: 240ms; }
+  /* "NETWORK DOWN" drops in from the top, where the button that caused it is. */
+  .off-banner { animation: drop-in 300ms var(--ease-out) both; }
+}
+@media (prefers-reduced-motion: reduce) {
+  button:not(:disabled):active { scale: 1; }
+}

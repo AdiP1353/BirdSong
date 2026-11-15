@@ -139,6 +139,9 @@ export function FlockGraph(props: { nodes: NodeSnapshot[]; events: TelemetryEven
   // Birds from before the `singing` event existed only report when a frame ends.
   for (const e of events) if (e.type === 'sang' && now - e.t < 400) singing.add(e.node);
   const trail = trailFor(events, focus);
+  // "Stop birds" mutes the whole flock; that is a pause, not a massacre, so no crosses then.
+  const flock = nodes.filter((n) => n.online && n.kind !== 'browser');
+  const everyoneMuted = store.stopped || (flock.length > 1 && flock.every((n) => n.config.muted));
   const byId = new Map(nodes.map((n) => [n.node, n]));
   const alive = (id: number): boolean => { const n = byId.get(id); return !!n && n.online && !n.config.muted; };
   /** Who hears a bird: its links in a manual topology, else the birds that heard it lately. */
@@ -299,7 +302,7 @@ export function FlockGraph(props: { nodes: NodeSnapshot[]; events: TelemetryEven
       {nodes.map((n) => {
         const { x, y } = pos(n.node);
         const off = !n.online || n.config.muted;
-        const shot = n.online && n.config.muted && !store.stopped && n.kind !== 'browser';
+        const shot = n.online && n.config.muted && !everyoneMuted && n.kind !== 'browser';
         const shotAge = now - (shots.current.get(n.node) ?? 0);
         const hop = trail.hops.get(n.node);
         const pr = progress.get(n.node);

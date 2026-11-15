@@ -2,9 +2,11 @@ import { render } from 'preact';
 import { App } from './app.tsx';
 import { Judge } from './components/Judge.tsx';
 import { connect } from './hubClient.ts';
+import { installTooltips } from './tooltip.ts';
 import './styles.css';
 
 connect();
+installTooltips();
 // ?view=judge is the phone page behind the dashboard's QR code.
 const judge = new URLSearchParams(location.search).get('view') === 'judge';
 if (judge) document.documentElement.classList.add('judge-page');

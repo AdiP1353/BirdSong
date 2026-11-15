@@ -68,5 +68,5 @@ export function AirScope(props: { width: number; height: number; class?: string;
     return () => cancelAnimationFrame(raf);
   }, [air.analyser, reveal, topHz]);
   if (!air.analyser) return null;
-  return <canvas ref={ref} class={`scope ${props.class ?? ''}`} width={props.width} height={props.height} title="The simulated air, live" />;
+  return <canvas ref={ref} class={`scope ${props.class ?? ''}`} width={props.width} height={props.height} data-tip="The simulated air, live: pitch goes up the picture, time runs to the right. Each streak is a chirp." />;
 }

@@ -42,19 +42,19 @@ export function Controls(props: {
     <div class="panel controls">
       <h2>Controls</h2>
       <div class="row">
-        <label>
+        <label data-tip="The musical scale the birds sing in, and the ambience that goes with it. Every bird must use the same one.">
           Environment
           <select value={props.env} onChange={(e) => configure('all', { env: e.currentTarget.value as EnvName })}>
             {ENV_NAMES.map((n) => <option value={n}>{ENVS[n].label}</option>)}
           </select>
         </label>
-        <label>
+        <label data-tip="fast: 3 s per frame, 32 chirp shapes. stealth: 9 s per frame, slower and more bird-like.">
           Profile
           <select value={props.profile} onChange={(e) => configure('all', { profile: e.currentTarget.value as ProfileName })}>
             {PROFILE_NAMES.map((n) => <option value={n}>{n}</option>)}
           </select>
         </label>
-        <label class="check">
+        <label class="check" data-tip="Birds play their environment's ambient sound under the chirps, so the message hides inside it. The quiet room has none.">
           <input
             type="checkbox"
             checked={props.camouflage}
@@ -64,7 +64,7 @@ export function Controls(props: {
         </label>
       </div>
       <div class="row relay">
-        <label>
+        <label data-tip="Relay limit. Once a bird has received a message more than this many times, it stops re-singing it. 0 means never stop.">
           Stop relaying after
           <span class="inline">
             <input
@@ -78,7 +78,7 @@ export function Controls(props: {
         </label>
         <span class="dim hint">A bird that has received a message more than N times stops singing it. 0 = never stop.</span>
       </div>
-      <button class="kill" onClick={killTwo}>Kill 2 random relays</button>
+      <button class="kill" data-tip="Mutes two random birds (never the writer of the selected message) to show the message finds another way." onClick={killTwo}>Kill 2 random relays</button>
       <div class="nodes">
         {nodes.map((n) => (
           <div class="node-row" key={n.node}>

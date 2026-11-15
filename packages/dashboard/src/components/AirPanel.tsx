@@ -25,10 +25,13 @@ export function AirPanel(props: { env: EnvName; camouflage: boolean; disabled: b
     <div class="panel airpanel">
       <div class="airpanel-head">
         <h2>The air{bed ? ` · hidden in ${ENVS[props.env].label.toLowerCase()} ambience` : ''}</h2>
-        <button class={props.camouflage ? 'on' : ''} disabled={props.disabled} onClick={hide}>
+        <button
+          class={props.camouflage ? 'on' : ''} disabled={props.disabled} onClick={hide}
+          data-tip="Camouflage: play jungle ambience under the chirps so the message hides in it."
+        >
           {props.camouflage ? 'Stop hiding' : 'Hide the chirps in the jungle'}
         </button>
-        <label class={`switch ${reveal ? 'on' : ''}`}>
+        <label class={`switch ${reveal ? 'on' : ''}`} data-tip="Paint the birds' own sound yellow and dim everything else.">
           <input type="checkbox" checked={reveal} onChange={(e) => setReveal(e.currentTarget.checked)} />
           Reveal the chirps
         </label>

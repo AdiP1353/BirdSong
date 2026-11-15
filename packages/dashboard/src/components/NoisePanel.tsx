@@ -35,13 +35,16 @@ export function NoisePanel(props: { sources: number }) {
         {SOURCES.map((s) => (
           <button
             key={s.id} class={noise.source === s.id ? 'on' : ''} disabled={noise.starting}
+            data-tip={s.id === 'mic'
+              ? 'Feed this computer\'s microphone into the air every bird hears. Talk, clap or whistle.'
+              : 'Feed a synthetic busy room into the air: people talking, a fan, mains hum and clicks.'}
             onClick={() => (noise.source === s.id ? stopNoise() : void startNoise(s.id))}
           >
             {noise.source === s.id ? `Stop ${s.label.toLowerCase()}` : s.label}
           </button>
         ))}
       </div>
-      <label class="gain">
+      <label class="gain" data-tip="How much the noise is amplified before it reaches the birds. +20 dB is ten times louder.">
         <span>Gain <b>{noise.gainDb > 0 ? '+' : ''}{noise.gainDb} dB</b></span>
         <input
           type="range" min="-20" max="40" step="1" value={noise.gainDb} aria-label="Noise gain in dB"
@@ -49,9 +52,9 @@ export function NoisePanel(props: { sources: number }) {
           onChange={(e) => setNoiseGain(Number(e.currentTarget.value), true)}
         />
       </label>
-      <div class="meter" title="Noise level against a bird's song (whole band)">
-        <div class={`fill ${verdict.tone}`} style={{ width: `${fill * 100}%` }} />
-        <div class="mark" style={{ left: `${birdMark * 100}%` }} title="A bird's song" />
+      <div class="meter" data-tip="Noise level against a bird's song. The mark is one bird. Up to +10 dB every frame decodes; past about +16 dB most are lost.">
+        <div class={`fill ${verdict.tone}`} style={{ transform: `scaleX(${fill})` }} />
+        <div class="mark" style={{ left: `${birdMark * 100}%` }} />
       </div>
       <div class={`verdict ${noise.source ? verdict.tone : 'dim'}`}>
         {noise.starting ? 'Starting…' : noise.source

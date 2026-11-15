@@ -148,6 +148,25 @@ a phone; the camouflage by ear (on the spectrogram the chirps are still visible 
 ambience is mostly low-pitched); the Microphone noise source.
 Also fixed: the Add noise source buttons had the class `left`, which picked up the page's grid rule.
 
+### Round 5 (committed after `ac534c2`, not pushed): UI polish, motion and tooltips (dashboard only)
+
+- **Tooltips:** `src/tooltip.ts`, one fixed layer driven by `data-tip` attributes (hover on hover-capable
+  devices after 350 ms, keyboard focus at once, Escape/scroll/press hide it). On the header counters and
+  buttons, Controls (environment, profile, camouflage, relay limit, kill), Add noise (sources, gain, meter),
+  Air panel, Spy view, QR modes, topology presets, remove-bird, the spectrogram. Old `title=` attributes on
+  those were replaced.
+- **Polish (`styles.css`, last section):** panel radius 16 with nested cards at 6, layered shadow plus hairline
+  border, dark `color-scheme` (scrollbars), hover styles behind `@media (hover: hover)`, `overscroll-behavior`
+  on scroll areas, no tap highlight, noise meter animates `transform` instead of `width`.
+- **Motion:** buttons press to `scale: 0.96` over 150 ms (segmented buttons opt out); state colours transition
+  150 ms on named properties; side-column panels and the judge page's sections rise in once on load (300 ms,
+  60 ms apart); NETWORK DOWN drops in; tooltip fades and scales from the trigger side (150 ms in, 100 ms out).
+  Tab switches (Graph/Birds, Score/Air) stay instant on purpose. Under `prefers-reduced-motion` everything
+  is a plain fade and the press scale is off.
+- A flock in which every bird is muted (Stop birds, also after a hub restart) no longer shows red crosses.
+- Checked in the browser: tooltip on Camouflage, dark scrollbars. **Not verified:** the motion at slow speed
+  in DevTools, keyboard-focus tooltips, the phone app in `packages/web` (untouched).
+
 ### Round 2 (`36252be`)
 
 | Feature | Where |

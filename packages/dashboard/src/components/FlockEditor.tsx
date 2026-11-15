@@ -54,7 +54,7 @@ export function FlockEditor(props: { nodes: NodeSnapshot[]; topology: TopologyVi
           <span class={`bird-chip ${n.online ? '' : 'dim'}`} key={n.node}>
             <i style={{ background: speciesColor(n.species) }} />#{n.node}
             <button
-              class="x" disabled={busy !== null} title={`Remove bird ${n.node}`} aria-label={`Remove bird ${n.node}`}
+              class="x" disabled={busy !== null} data-tip={`Remove bird ${n.node}: its container stops and its links are dropped.`} aria-label={`Remove bird ${n.node}`}
               onClick={() => void run(`rm${n.node}`, () => removeBird(n.node))}
             >
               {busy === `rm${n.node}` ? '…' : '×'}
