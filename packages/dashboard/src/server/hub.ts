@@ -4,10 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
-import {
-  DEFAULT_NODE_CONFIG, HUB_PORT, MAX_ALIAS_CHARS, MAX_TEXT_CHARS, decodeSong, decodeWav, encodeWav, formatTopology,
-  parseTopology, renderMessageSong,
-} from '@birdsong/core';
+import { HUB_PORT, formatTopology, parseTopology } from '@birdsong/core';
 import type { Command, HubToUi, TelemetryEvent, TopologyView } from '@birdsong/core';
 import { createHubState } from './state.ts';
 import { createInteractionLog } from './interactionLog.ts';
@@ -33,10 +30,14 @@ export interface HubOptions {
   /** Bearer token the nursery expects. */
   nurseryToken?: string | null;
   /**
-   * Base URL at which phones on the same network reach this hub (e.g. http://192.168.1.9:3200). The dashboard
-   * puts it in the "Send a message" QR code. null/absent = the dashboard uses its own address.
+   * ElevenLabs API key for speech-to-text on the phone app (its 🎤 button). The key lives only in the hub: phones post
+   * audio to POST /api/transcribe and never see it. null/absent = the microphone button is hidden.
    */
-  publicUrl?: string | null;
+  elevenLabsKey?: string | null;
+  /** ElevenLabs speech-to-text model (default scribe_v1). */
+  elevenLabsModel?: string | null;
+  /** ElevenLabs API base URL (default https://api.elevenlabs.io); tests point it at a fake. */
+  elevenLabsUrl?: string | null;
 }
 
 const MIME: Record<string, string> = {
@@ -57,9 +58,10 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
   const etherControlToken = opts.etherControlToken ?? null;
   const nurseryUrl = opts.nurseryUrl ? opts.nurseryUrl.replace(/\/+$/, '') : null;
   const nurseryToken = opts.nurseryToken ?? null;
-  const publicUrl = opts.publicUrl ? opts.publicUrl.replace(/\/+$/, '') : null;
-  const SONG_RATE = 48_000;
-  const SONG_MAX_BYTES = 24 * 1024 * 1024;
+  const elevenLabsKey = opts.elevenLabsKey || null;
+  const elevenLabsModel = opts.elevenLabsModel || 'scribe_v1';
+  const elevenLabsUrl = (opts.elevenLabsUrl || 'https://api.elevenlabs.io').replace(/\/+$/, '');
+  const SPEECH_MAX_BYTES = 8 * 1024 * 1024;
   const distDir = resolve(opts.distDir ?? join(here, '..', '..', 'dist'));
   const webDistDir = resolve(opts.webDistDir ?? join(here, '..', '..', '..', 'web', 'dist'));
   const log = createInteractionLog({ file: opts.logFile ?? null });
@@ -136,40 +138,50 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
   const readBody = async (req: IncomingMessage): Promise<string> => (await readBytes(req, 16384)).toString('utf8');
 
   /**
-   * Take-home birdsong. POST /api/song {text, alias?} returns the message as a WAV of ordinary frames, in the
-   * flock's current environment and profile; POST /api/song/decode (a WAV body) reads one back. The hub does
-   * this for phones, whose browsers have no WebCrypto on a plain-http page.
+   * Speech to text for the message box. POST /api/transcribe with the recorded audio as the body (any audio type the
+   * phone's recorder makes) returns {text}. The hub adds the ElevenLabs key; this is the only part of the demo that
+   * needs the internet, and it happens before a message is sent. Nothing is logged: the audio and text are the
+   * person's, and the message is logged anyway when they send it.
    */
-  async function songRoute(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+  async function transcribeRoute(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const reply = (status: number, body: unknown): void => {
       res.writeHead(status, { 'content-type': 'application/json' });
       res.end(JSON.stringify(body));
     };
     if (req.method !== 'POST') { reply(405, { error: 'use POST' }); return; }
-    const like = state.snapshot().find((n) => n.online && n.kind !== 'browser') ?? state.snapshot()[0];
-    const env = like?.config.env ?? DEFAULT_NODE_CONFIG.env;
-    const profile = like?.config.profile ?? DEFAULT_NODE_CONFIG.profile;
+    if (!elevenLabsKey) { reply(503, { error: 'speech to text is not set up (the hub has no ELEVENLABS_API_KEY)' }); return; }
+    let audio: Buffer;
     try {
-      if (path === '/api/song/decode') {
-        const { pcm, sampleRate } = decodeWav(new Uint8Array(await readBytes(req, SONG_MAX_BYTES)));
-        reply(200, { messages: await decodeSong(pcm, { passphrase, env, profile, sampleRate }) });
-        return;
-      }
-      const body = (JSON.parse(await readBody(req)) ?? {}) as { text?: unknown; alias?: unknown };
-      const text = typeof body.text === 'string' ? body.text.trim() : '';
-      if (text === '' || text.length > MAX_TEXT_CHARS) { reply(400, { error: `text must be 1 to ${MAX_TEXT_CHARS} characters` }); return; }
-      const alias = typeof body.alias === 'string' ? body.alias.slice(0, MAX_ALIAS_CHARS) : '';
-      const pcm = await renderMessageSong({ passphrase, env, profile, sampleRate: SONG_RATE, text, alias, species: 0, sender: 255 });
-      const wav = encodeWav(pcm, SONG_RATE);
-      log.append('song', { text });
-      res.writeHead(200, {
-        'content-type': 'audio/wav', 'content-length': wav.length,
-        'content-disposition': `attachment; filename="birdsong-${Date.now()}.wav"`,
-      });
-      res.end(wav);
+      audio = await readBytes(req, SPEECH_MAX_BYTES);
     } catch (err) {
-      reply(400, { error: (err as Error).message });
+      reply(413, { error: (err as Error).message });
+      return;
     }
+    if (audio.length === 0) { reply(400, { error: 'no audio received' }); return; }
+    const type = (req.headers['content-type'] ?? 'audio/webm').split(';')[0]!.trim() || 'audio/webm';
+    const form = new FormData();
+    form.append('model_id', elevenLabsModel);
+    // No "[birds chirping]" tags: the phone dictates next to the flock's speakers, and only the words belong in a message.
+    form.append('tag_audio_events', 'false');
+    form.append('file', new Blob([new Uint8Array(audio)], { type }), 'speech');
+    let r: Response;
+    try {
+      r = await fetch(`${elevenLabsUrl}/v1/speech-to-text`, {
+        method: 'POST', body: form, headers: { 'xi-api-key': elevenLabsKey }, signal: AbortSignal.timeout(30_000),
+      });
+    } catch {
+      reply(503, { error: 'cannot reach ElevenLabs (speech to text needs the internet)' });
+      return;
+    }
+    if (!r.ok) {
+      // 401 means a wrong key. Say so without echoing anything ElevenLabs sent back.
+      reply(502, { error: r.status === 401 ? 'ElevenLabs rejected the API key' : `ElevenLabs returned HTTP ${r.status}` });
+      return;
+    }
+    const body = await r.json().catch(() => null) as { text?: unknown } | null;
+    const text = typeof body?.text === 'string' ? body.text.trim() : '';
+    if (text === '') { reply(422, { error: 'no speech heard. Try again, closer to the microphone' }); return; }
+    reply(200, { text });
   }
 
   /** GET or PUT the ether's topology. A successful PUT is logged and sent to every dashboard. */
@@ -381,8 +393,8 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
       await disabledRoute(req, res);
       return;
     }
-    if (p === '/api/song' || p === '/api/song/decode') {
-      await songRoute(req, res, p);
+    if (p === '/api/transcribe') {
+      await transcribeRoute(req, res);
       return;
     }
     if (p === '/api/stopped') {
@@ -393,7 +405,7 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({
         etherUrl, proxyUrl, topologyEditable: etherControlUrl !== null, flockEditable: nurseryUrl !== null,
-        noiseEditable: etherControlUrl !== null, publicUrl,
+        noiseEditable: etherControlUrl !== null, speechToText: elevenLabsKey !== null,
       }));
       return;
     }
@@ -596,7 +608,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     etherControlToken: process.env.ETHER_CONTROL_TOKEN || null,
     nurseryUrl: process.env.NURSERY_URL || null,
     nurseryToken: process.env.NURSERY_TOKEN || null,
-    publicUrl: process.env.HUB_PUBLIC_URL || null,
+    elevenLabsKey: process.env.ELEVENLABS_API_KEY || null,
+    elevenLabsModel: process.env.ELEVENLABS_STT_MODEL || null,
   });
   console.log(`hub listening on ${hub.port}${process.env.HUB_LOG_FILE ? `, logging to ${process.env.HUB_LOG_FILE}` : ''}`);
 }

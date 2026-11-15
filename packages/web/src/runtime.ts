@@ -13,6 +13,8 @@ export interface Runtime {
   configure(patch: Partial<NodeConfig>): Promise<NodeState>;
   onEvent(cb: (e: TelemetryEvent) => void): void;
   audio?: { context: AudioContext; analyser: AnalyserNode };
+  /** Local nodes only: the node's microphone, which dictation borrows (and pauses chirp listening for). */
+  mic?: { stream(): MediaStream | null; setListening(on: boolean): void };
 }
 
 export interface LocalOptions { passphrase: string; env: EnvName; profile: ProfileName; alias: string }
@@ -42,6 +44,7 @@ export function createLocalRuntime(o: LocalOptions): Runtime & { port: ReturnTyp
     kind: 'local',
     port,
     audio: { context: port.context, analyser: port.analyser },
+    mic: { stream: () => port.stream(), setListening: (on) => port.setListening(on) },
     async start() {
       void port.start().catch(() => {}); // idempotent; node.start() surfaces the error
       await node.start();

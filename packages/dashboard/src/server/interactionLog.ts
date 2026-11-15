@@ -7,7 +7,7 @@ import type { Command, TelemetryEvent } from '@birdsong/core';
  * 'topology' = the ether's topology was changed from the dashboard, 'noise' = a noise source joined or left
  * (`{sources}`) or said what it plays (`{source, level}`), 'stopped' = "Stop birds" switched on or off.
  */
-export type LogKind = 'event' | 'command' | 'offline' | 'topology' | 'disabled' | 'flock' | 'noise' | 'stopped' | 'song';
+export type LogKind = 'event' | 'command' | 'offline' | 'topology' | 'disabled' | 'flock' | 'noise' | 'stopped';
 export interface LogEntry {
   seq: number;
   t: number;

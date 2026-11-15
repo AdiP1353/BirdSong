@@ -1,9 +1,20 @@
 # Reverse proxy for the simulated mesh (docker/compose.sim.yml).
 # Port 3100 is the only host port that reaches the nodes and the ether.
 # Keep the port in sync with PROXY_PORT in packages/core/src/telemetry.ts.
+# Port 3443 is the hub over HTTPS, for phones: browsers lend a page the microphone only on https (or localhost).
 {
 	admin off
-	auto_https off
+	# 3100 stays plain http; only the phone site below gets a certificate.
+	auto_https disable_redirects
+	# Phones open https://<this computer's IP>:3443. A client sends no SNI for an IP address, so pick that certificate.
+	default_sni {$PHONE_HOST}
+}
+
+# The phone app (/app/) and the hub's /config.json and /api/transcribe, over HTTPS with a certificate from Caddy's own
+# CA (phones show a warning once: Advanced, Proceed). PHONE_HOST is this computer's LAN address (set by scripts/demo.sh).
+https://{$PHONE_HOST}:3443, https://localhost:3443 {
+	tls internal
+	reverse_proxy hub:3200
 }
 
 :3100 {

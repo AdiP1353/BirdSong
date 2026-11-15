@@ -2,25 +2,27 @@ import { useEffect, useState } from 'preact/hooks';
 import QRCode from 'qrcode';
 import type { EnvName, ProfileName } from '@birdsong/core';
 
-type Mode = 'judge' | 'bird';
+/** Why a phone could not use this address, or null when it can. Phones need a LAN address, and HTTPS for the microphone. */
+export function phoneUrlProblem(pwaUrl: string): string | null {
+  let u: URL;
+  try { u = new URL(pwaUrl); } catch { return 'The phone address is not a URL. Set PWA_URL.'; }
+  if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(u.hostname)) {
+    return 'A phone cannot open “localhost”. Start the demo with bash scripts/demo.sh (it finds this computer’s address), or set PWA_URL.';
+  }
+  if (u.protocol !== 'https:') return 'Phones get the microphone only on https:// pages. Set PWA_URL to an https address.';
+  return null;
+}
 
 /**
- * Two QR codes. "Send a message" opens the judge page on a phone (this hub, ?view=judge): type a name and a
- * message and it is sung by a bird. "Join as a bird" opens the phone app, which makes the phone a real node.
+ * One QR code: the phone app, with the flock's passphrase, environment and profile after the '#'. The phone turns on
+ * its microphone and becomes a bird: it listens for, relays and sings messages, and its owner can speak or type one.
  */
 export function JoinQr(props: { join: { pwaUrl: string; passphrase: string }; env: EnvName; profile: ProfileName }) {
   const { join, env, profile } = props;
-  const [mode, setMode] = useState<Mode>('judge');
-  const [publicUrl, setPublicUrl] = useState<string | null>(null);
   const [img, setImg] = useState('');
-  useEffect(() => {
-    fetch('/config.json').then((r) => r.json()).then((c: { publicUrl?: string | null }) => setPublicUrl(c.publicUrl ?? null), () => {});
-  }, []);
-  const base = publicUrl ?? location.origin;
-  const local = /\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(base);
-  const url = mode === 'judge'
-    ? `${base}/?view=judge`
-    : `${join.pwaUrl}#k=${encodeURIComponent(join.passphrase)}&env=${env}&p=${profile}`;
+  const url = `${join.pwaUrl}#k=${encodeURIComponent(join.passphrase)}&env=${env}&p=${profile}`;
+  const problem = join.pwaUrl ? phoneUrlProblem(join.pwaUrl) : null;
+  const selfSigned = /^https:\/\/\d{1,3}(\.\d{1,3}){3}(:|\/)/.test(join.pwaUrl);
   useEffect(() => {
     let live = true;
     QRCode.toDataURL(url, { width: 320, margin: 1, color: { dark: '#000000', light: '#ffffff' } }).then((d) => {
@@ -32,16 +34,11 @@ export function JoinQr(props: { join: { pwaUrl: string; passphrase: string }; en
   }, [url]);
   return (
     <div class="panel qr">
-      <div class="seg center" role="group" aria-label="QR code">
-        <button class={mode === 'judge' ? 'on' : ''} data-tip="A phone page for typing a message that one bird then sings. The phone must be on the same Wi-Fi." onClick={() => setMode('judge')}>Send a message</button>
-        <button class={mode === 'bird' ? 'on' : ''} data-tip="Turns the phone into a real bird that listens and sings through its own microphone and speaker." onClick={() => setMode('bird')}>Join as a bird</button>
-      </div>
-      <h2>{mode === 'judge' ? 'Scan, type, and watch it fly' : 'Join the flock'}</h2>
-      {img ? <img src={img} width={320} height={320} alt={mode === 'judge' ? 'QR code of the message page' : 'Join QR code'} /> : <div class="qr-ph" />}
-      <small class="url">{url}</small>
-      {mode === 'judge' && local && (
-        <small class="warn">A phone cannot open “localhost”. Start the demo with <code>bash scripts/demo.sh</code> (it finds this computer’s address), or set <code>HUB_PUBLIC_URL</code>.</small>
-      )}
+      <h2 data-tip="The phone listens through its microphone, sings through its speaker, and lets you speak or type a message. Same Wi-Fi as this computer.">Scan to become a bird</h2>
+      {img ? <img src={img} width={320} height={320} alt="QR code that turns a phone into a bird" /> : <div class="qr-ph" />}
+      <small class="url">{join.pwaUrl}</small>
+      {selfSigned && <small class="dim">The phone shows a certificate warning (this computer signs its own): tap Advanced, then Proceed.</small>}
+      {problem && <small class="warn">{problem}</small>}
     </div>
   );
 }

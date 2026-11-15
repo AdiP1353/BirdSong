@@ -10,6 +10,17 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Settings and secrets (such as ELEVENLABS_API_KEY) live in .env or .env.local (the ElevenLabs CLI writes the
+# latter); see .env.example. Plain KEY=value lines. .env.local wins when both set a value.
+for f in .env .env.local; do
+  if [ -f "$f" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "./$f"
+    set +a
+  fi
+done
+
 COMPOSE=(docker compose -f docker/compose.sim.yml)
 PRESET=two-flocks
 HUB=http://localhost:3200
@@ -46,14 +57,15 @@ step "Building the BirdSong image (fast after the first time)"
 # One build for all ten services: building each from compose can collide on the shared tag.
 docker build -f docker/Dockerfile.node -t birdsong-node .
 
-# This computer's address on the local network, so a phone can open the "Send a message" page from the QR code.
-if [ -z "${HUB_PUBLIC_URL:-}" ]; then
-  LAN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit }}' || true)
-  if [ -z "$LAN_IP" ]; then LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || true); fi
-  if [ -z "$LAN_IP" ]; then LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true); fi
-  if [ -n "$LAN_IP" ]; then HUB_PUBLIC_URL="http://$LAN_IP:3200"; fi
+# This computer's address on the local network. The dashboard's QR code sends phones to
+# https://<it>:3443/app/: the proxy serves the hub there over HTTPS, because phones get the microphone only on https.
+if [ -z "${PHONE_HOST:-}" ]; then
+  PHONE_HOST=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit }}' || true)
+  if [ -z "$PHONE_HOST" ]; then PHONE_HOST=$(ipconfig getifaddr en0 2>/dev/null || true); fi
+  if [ -z "$PHONE_HOST" ]; then PHONE_HOST=$(hostname -I 2>/dev/null | awk '{print $1}' || true); fi
 fi
-export HUB_PUBLIC_URL="${HUB_PUBLIC_URL:-}"
+export PHONE_HOST="${PHONE_HOST:-127.0.0.1}"
+export PWA_URL="${PWA_URL:-https://$PHONE_HOST:3443/app/}"
 
 step "Starting the mesh: ether, hub, proxy, nursery and 8 birds"
 mkdir -p logs   # created by you, not root, before Docker bind-mounts it
@@ -94,14 +106,21 @@ for i in $(seq 1 30); do
 done
 echo "$online of 8 birds are up"
 
+if [ -n "${ELEVENLABS_API_KEY:-}" ]; then
+  SPEECH_NOTE="on (the 🎤 button on the phone page; needs the internet)"
+else
+  SPEECH_NOTE="off (put ELEVENLABS_API_KEY in .env to turn it on)"
+fi
+
 cat <<MSG
 
 BirdSong demo is running.
 
   Dashboard:     $HUB            (Birds view: $HUB/?view=birds)
-  Judge's phone: ${HUB_PUBLIC_URL:-http://<this computer>:3200}/?view=judge   (same Wi-Fi; also the dashboard's QR code)
+  Phones:        $PWA_URL   (the dashboard's QR code; same Wi-Fi; accept the certificate warning once)
   Bird pages:    http://localhost:3100/nodes/0/ ... /nodes/7/
   Send from 0:   curl -X POST localhost:3100/nodes/0/api/send -H 'Content-Type: application/json' -d '{"text":"hello flock"}'
+  Speech to text: $SPEECH_NOTE
   Stop:          npm run demo:stop
 
 MSG

@@ -31,7 +31,7 @@ async function keepAwake(): Promise<void> {
 function micMessage(e: unknown): string {
   const name = e instanceof DOMException ? e.name : '';
   if (name === 'NotAllowedError' || name === 'SecurityError') {
-    return 'Microphone access was denied. Allow the microphone for this site in your browser settings (the lock icon in the address bar), then tap Join again.';
+    return 'Microphone access was denied. Allow the microphone for this site in your browser settings (the lock icon in the address bar), then tap "Turn on the microphone" again.';
   }
   return e instanceof Error ? e.message : String(e);
 }

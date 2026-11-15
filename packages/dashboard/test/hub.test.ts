@@ -165,7 +165,7 @@ describe('hub', () => {
     const r = await fetch(`http://127.0.0.1:${hub.port}/`);
     expect(await r.text()).toContain('not built');
     const c = await (await fetch(`http://127.0.0.1:${hub.port}/config.json`)).json();
-    expect(c).toEqual({ etherUrl: null, proxyUrl: null, topologyEditable: false, flockEditable: false, noiseEditable: false, publicUrl: null });
+    expect(c).toEqual({ etherUrl: null, proxyUrl: null, topologyEditable: false, flockEditable: false, noiseEditable: false, speechToText: false });
   });
 
   const restart = async (extra: Parameters<typeof startHub>[0]): Promise<void> => {
@@ -182,7 +182,7 @@ describe('hub', () => {
   it('config.json carries proxyUrl', async () => {
     await restart({ proxyUrl: 'http://localhost:3100' });
     const c = await (await fetch(`http://127.0.0.1:${hub.port}/config.json`)).json();
-    expect(c).toEqual({ etherUrl: null, proxyUrl: 'http://localhost:3100', topologyEditable: false, flockEditable: false, noiseEditable: false, publicUrl: null });
+    expect(c).toEqual({ etherUrl: null, proxyUrl: 'http://localhost:3100', topologyEditable: false, flockEditable: false, noiseEditable: false, speechToText: false });
   });
 
   it('/api/log records events, commands and offline in order', async () => {
@@ -408,26 +408,60 @@ describe('hub', () => {
     await expect(open('/noise')).rejects.toThrow();
   });
 
-  it('turns a message into a song file and decodes it back, in the flock\'s environment and profile', async () => {
-    await restart({ passphrase: 'take-home', publicUrl: 'http://192.168.1.9:3200/' });
+
+  it('transcribes speech through ElevenLabs without exposing the key', async () => {
+    const seen: { url: string; key: string | undefined; type: string | undefined; body: string }[] = [];
+    let reply: { status: number; body: string } = { status: 200, body: JSON.stringify({ text: '  The eagle lands at noon  ' }) };
+    const fake = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        seen.push({ url: req.url!, key: req.headers['xi-api-key'] as string | undefined, type: req.headers['content-type'], body: Buffer.concat(chunks).toString('latin1') });
+        res.writeHead(reply.status, { 'content-type': 'application/json' });
+        res.end(reply.body);
+      });
+    });
+    await new Promise<void>((r) => fake.listen(0, r));
+    const fakePort = (fake.address() as { port: number }).port;
+    try {
+      await restart({ elevenLabsKey: 'sk-test', elevenLabsUrl: `http://127.0.0.1:${fakePort}/`, elevenLabsModel: 'scribe_v1' });
+      const base = `http://127.0.0.1:${hub.port}`;
+      const cfg = await (await fetch(`${base}/config.json`)).json();
+      expect(cfg).toMatchObject({ speechToText: true });
+      expect(JSON.stringify(cfg)).not.toContain('sk-test');
+
+      const ok = await fetch(`${base}/api/transcribe`, { method: 'POST', headers: { 'content-type': 'audio/webm;codecs=opus' }, body: new Uint8Array([1, 2, 3, 4]) });
+      expect(ok.status).toBe(200);
+      expect(await ok.json()).toEqual({ text: 'The eagle lands at noon' });
+      expect(seen[0]!.url).toBe('/v1/speech-to-text');
+      expect(seen[0]!.key).toBe('sk-test');
+      expect(seen[0]!.type).toMatch(/^multipart\/form-data/);
+      expect(seen[0]!.body).toContain('name="model_id"');
+      expect(seen[0]!.body).toContain('scribe_v1');
+      expect(seen[0]!.body).toMatch(/name="tag_audio_events"\r\n\r\nfalse/);
+      expect(seen[0]!.body).toContain('audio/webm');
+
+      expect((await fetch(`${base}/api/transcribe`, { method: 'POST', body: new Uint8Array(0) })).status).toBe(400);
+      expect((await fetch(`${base}/api/transcribe`)).status).toBe(405);
+
+      reply = { status: 200, body: JSON.stringify({ text: '   ' }) };
+      expect((await fetch(`${base}/api/transcribe`, { method: 'POST', body: new Uint8Array([1]) })).status).toBe(422);
+      reply = { status: 401, body: JSON.stringify({ detail: 'invalid key sk-secret-echo' }) };
+      const bad = await fetch(`${base}/api/transcribe`, { method: 'POST', body: new Uint8Array([1]) });
+      expect(bad.status).toBe(502);
+      const badText = await bad.text();
+      expect(badText).toContain('rejected the API key');
+      expect(badText).not.toContain('sk-secret-echo');
+    } finally {
+      await new Promise<void>((r) => fake.close(() => r()));
+    }
+  });
+
+  it('says speech to text is not set up when there is no key', async () => {
     const base = `http://127.0.0.1:${hub.port}`;
-    expect(await (await fetch(`${base}/config.json`)).json()).toMatchObject({ publicUrl: 'http://192.168.1.9:3200' });
-    const n = await open('/node');
-    n.ws.send(JSON.stringify({ ...hello(1), config: { ...DEFAULT_NODE_CONFIG, env: 'coast', profile: 'fast' } }));
-    await new Promise((r) => setTimeout(r, 100));
-    const bad = await fetch(`${base}/api/song`, { method: 'POST', body: JSON.stringify({ text: '' }) });
-    expect(bad.status).toBe(400);
-    const r = await fetch(`${base}/api/song`, { method: 'POST', body: JSON.stringify({ text: 'Ada: hello birds', alias: 'Ada' }) });
-    expect(r.status).toBe(200);
-    expect(r.headers.get('content-type')).toBe('audio/wav');
-    expect(r.headers.get('content-disposition')).toMatch(/attachment; filename="birdsong-.*\.wav"/);
-    const wav = new Uint8Array(await r.arrayBuffer());
-    expect(wav.length).toBeGreaterThan(100_000);
-    const back = await fetch(`${base}/api/song/decode`, { method: 'POST', body: wav });
-    expect(back.status).toBe(200);
-    expect(await back.json()).toMatchObject({ messages: [{ text: 'Ada: hello birds', alias: 'Ada' }] });
-    const junk = await fetch(`${base}/api/song/decode`, { method: 'POST', body: new Uint8Array([1, 2, 3]) });
-    expect(junk.status).toBe(400);
-    n.ws.close();
-  }, 60_000);
+    expect(await (await fetch(`${base}/config.json`)).json()).toMatchObject({ speechToText: false });
+    const r = await fetch(`${base}/api/transcribe`, { method: 'POST', body: new Uint8Array([1]) });
+    expect(r.status).toBe(503);
+    expect(((await r.json()) as { error: string }).error).toContain('ELEVENLABS_API_KEY');
+  });
 });

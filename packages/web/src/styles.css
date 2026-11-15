@@ -23,6 +23,11 @@ progress { width: 100%; accent-color: var(--accent); }
 
 .count { color: var(--accent); font-weight: 700; }
 .quiet { color: #ffb74d; }
+button.mic { background: rgba(255,255,255,0.12); color: var(--fg); border: 1px solid rgba(255,255,255,0.3); padding: 12px; font-size: 1.05rem; }
+button.mic.rec { background: #8e1b1b; border-color: #ff8a80; color: #fff; }
+.flock-settings { display: flex; flex-direction: column; gap: 8px; }
+.flock-settings summary { cursor: pointer; opacity: 0.8; font-size: 0.9rem; }
+.flock-settings[open] > summary { margin-bottom: 8px; }
 /* ?compact=1: one small window in the dashboard's bird grid */
 .compact body { font-size: 13px; }
 .compact main { max-width: none; padding: 6px; gap: 6px; }

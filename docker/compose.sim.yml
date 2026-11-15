@@ -1,5 +1,6 @@
 # Simulated 8-node mesh. Start with: bash scripts/sim-up.sh
-# Published on the host: 3200 = hub (dashboard, node app /app/, /api/log), 3100 = proxy (/nodes/<id>/, /ether/).
+# Published on the host: 3200 = hub (dashboard, node app /app/, /api/log), 3100 = proxy (/nodes/<id>/, /ether/),
+# 3443 = the hub over HTTPS for phones (the QR code opens https://<this computer>:3443/app/).
 # The ether and the nodes publish no ports; they reach each other by service name.
 # Topology (who hears whom): docker/topology.txt at startup; live changes only through the hub (dashboard).
 # Birds added from the dashboard are extra containers started by the nursery (which mounts the Docker socket).
@@ -40,9 +41,13 @@ services:
       # Browser-facing URLs (opened by the dashboard page on the host):
       ETHER_URL: ws://localhost:3100/ether
       PROXY_URL: http://localhost:3100
-      # Address of this computer on the local network, for the "Send a message" QR code (set by scripts/demo.sh).
-      HUB_PUBLIC_URL: ${HUB_PUBLIC_URL:-}
+      # The phone app's address in the dashboard's QR code: https://<this computer's LAN IP>:3443/app/ (set by
+      # scripts/demo.sh). Empty = http://localhost:3200/app/, which only a browser on this computer can use.
+      PWA_URL: ${PWA_URL:-}
       HUB_LOG_FILE: /app/logs/interactions.ndjson
+      # Speech to text on the phone app (its 🎤 button). Read from the repository's .env (scripts/demo.sh loads it); empty = off.
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_STT_MODEL: ${ELEVENLABS_STT_MODEL:-}
       # Internal: the hub relays topology changes from the dashboard to the ether.
       ETHER_CONTROL_URL: http://ether:7080
       ETHER_CONTROL_TOKEN: *etherToken
@@ -66,9 +71,13 @@ services:
     volumes: ["${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock"]
   proxy:
     image: caddy:2
-    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro"]
-    ports: ["3100:3100"]
-    depends_on: [ether, bird0, bird1, bird2, bird3, bird4, bird5, bird6, bird7]
+    environment:
+      # This computer's LAN address, for the phones' HTTPS certificate (set by scripts/demo.sh).
+      PHONE_HOST: ${PHONE_HOST:-127.0.0.1}
+    # caddy-data keeps Caddy's CA, so a phone that accepted the certificate once is not asked again after a restart.
+    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddy-data:/data"]
+    ports: ["3100:3100", "3443:3443"]
+    depends_on: [ether, hub, bird0, bird1, bird2, bird3, bird4, bird5, bird6, bird7]
   bird0:
     <<: *node
     command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:3200", "--key", "demo-flock", "--env", "quiet", "--id", "0", "--x", "0", "--y", "0", "--port", "8080"]
@@ -93,3 +102,6 @@ services:
   bird7:
     <<: *node
     command: ["--audio", "ether", "--ether", "ws://ether:7080", "--observatory", "ws://hub:3200", "--key", "demo-flock", "--env", "quiet", "--id", "7", "--x", "3", "--y", "1", "--port", "8080"]
+
+volumes:
+  caddy-data:

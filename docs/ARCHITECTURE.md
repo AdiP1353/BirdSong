@@ -26,7 +26,7 @@ flowchart LR
   nr -->|"telemetry events (observer only)"| hub
   hub -->|"commands: mute, configure, send"| nr
   hub -->|"topology edits, noise from the dashboard (sim only)"| ether
-  hub -->|"serves dashboard and join QR"| judge["judge's phone scans QR, opens the PWA"]
+  hub -->|"serves dashboard and join QR; phone app over HTTPS (sim), speech to text"| judge["judge's phone scans QR, becomes a bird"]
 ```
 
 Message data travels only as sound (real air, or the ether in simulation). The hub link carries events for the dashboard and a few commands (mute, change environment, send). In simulation the ether owns the topology (who hears whom). It starts from `docker/topology.txt` and keeps working without the hub. The hub is the only client that can change the topology while the mesh runs. Phones send no telemetry: the hub infers a "phone" node when a laptop hears a frame from a sender id it does not know.
@@ -44,7 +44,8 @@ Message data travels only as sound (real air, or the ether in simulation). The h
 | Port | Process | Serves |
 |---|---|---|
 | 3100 | proxy (Caddy) | `/nodes/<id>/` to the container reachable as `bird<id>` (any id, so added birds work too), `/ether/listen` to the simulated air (only that path) |
-| 3200 | hub | dashboard, node app `/app/`, WebSockets `/node`, `/ui` and `/noise` (dashboard noise, relayed to the ether), `/config.json`, `/api/log`, `/api/topology` (relayed to the ether), `/api/birds` (add/remove, relayed to the nursery), `/api/disabled`, `/api/stopped` (mute or unmute every bird), `/api/song` and `/api/song/decode` (message to WAV and back), the judge's phone page `/?view=judge` |
+| 3200 | hub | dashboard, node app `/app/`, WebSockets `/node`, `/ui` and `/noise` (dashboard noise, relayed to the ether), `/config.json`, `/api/log`, `/api/topology` (relayed to the ether), `/api/birds` (add/remove, relayed to the nursery), `/api/disabled`, `/api/stopped` (mute or unmute every bird), `/api/transcribe` (speech to text through ElevenLabs, when the hub has a key) |
+| 3443 | proxy (Caddy) | the hub over HTTPS (`tls internal`, a certificate for `PHONE_HOST`), so phones on the LAN can open `/app/` with the microphone; the dashboard's QR code points here |
 | internal | ether 7080, nursery 7090, nodes 8080 | reached by service name on the compose network, not published; the hub uses `http://ether:7080/topology`, `ws://ether:7080/noise` and `http://nursery:7090/birds` (each with a bearer token) |
 
 ## Seams

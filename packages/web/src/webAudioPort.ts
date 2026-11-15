@@ -2,7 +2,14 @@ import type { AudioPort } from '@birdsong/core';
 
 const CHUNK = 2048;
 
-export type WebAudioPort = AudioPort & { context: AudioContext; analyser: AnalyserNode };
+export type WebAudioPort = AudioPort & {
+  context: AudioContext;
+  analyser: AnalyserNode;
+  /** The microphone stream once started (shared with dictation, so the phone asks for the microphone once). */
+  stream(): MediaStream | null;
+  /** false = the node hears nothing (dictation is using the microphone); true = back to listening for chirps. */
+  setListening(on: boolean): void;
+};
 
 export function createWebAudioPort(): WebAudioPort {
   const context = new AudioContext();
@@ -21,6 +28,7 @@ export function createWebAudioPort(): WebAudioPort {
   let lastEnd = 0;
   let acc = new Float32Array(CHUNK);
   let fill = 0;
+  let listening = true;
 
   function feed(block: Float32Array): void {
     let i = 0;
@@ -46,7 +54,9 @@ export function createWebAudioPort(): WebAudioPort {
     await context.audioWorklet.addModule(new URL('capture-worklet.js', document.baseURI));
     const src = context.createMediaStreamSource(stream);
     const worklet = new AudioWorkletNode(context, 'birdsong-capture', { numberOfOutputs: 1, outputChannelCount: [1] });
-    worklet.port.onmessage = (e: MessageEvent<Float32Array>) => feed(e.data);
+    worklet.port.onmessage = (e: MessageEvent<Float32Array>) => {
+      if (listening) feed(e.data);
+    };
     src.connect(worklet);
     worklet.connect(sink);
     src.connect(analyser);
@@ -69,6 +79,11 @@ export function createWebAudioPort(): WebAudioPort {
     },
     onInput(cb) {
       onInput = cb;
+    },
+    stream: () => stream,
+    setListening(on) {
+      listening = on;
+      fill = 0; // never join audio from before and after a pause into one chunk
     },
     play(pcm) {
       return new Promise<void>((resolve) => {

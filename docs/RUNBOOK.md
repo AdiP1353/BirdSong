@@ -52,7 +52,7 @@ Check: all nodes show as online on the dashboard.
 ## 4. The 3-minute demo script
 
 1. **The problem (20 s).** "When a government cuts the internet, people still have phones with speakers and microphones. We hide encrypted messages in birdsong, so a flock of devices passes them along and nobody notices."
-2. **Join (20 s).** A judge scans the QR on the dashboard, opens the page, taps "Join the flock", allows the microphone. The phone shows up on the dashboard once a laptop hears it.
+2. **Join (20 s).** A judge scans the QR on the dashboard, opens the page, taps "Turn on the microphone", allows it. The phone shows up on the dashboard once a laptop hears it.
 3. **Send (30 s).** On a laptop, open `http://localhost:8080/?runtime=remote`, type a message, press "Send".
 4. **Watch it hop (40 s).** On the dashboard, point at the links pulsing and the rings filling as nodes collect droplets (a stealth frame is about 9 s long, so narrate while it travels; the fast profile is about 3 s per frame).
 5. **Kill the relays (30 s).** While the message is in flight, press "Kill 2 random relays". Say: "No central server, no fixed route." Then press "✂ Cut the internet" (NETWORK DOWN): the hub lets go of every bird, but you still hear them and the bird windows still fill up. Say: "The dashboard only watches. Turn it off and the flock carries on." Turn it back on.
@@ -62,13 +62,14 @@ Check: all nodes show as online on the dashboard.
 
 ### Hands-on moments for the simulated mesh (`bash scripts/demo.sh`)
 
-- **Their own words.** The judge scans "Send a message" on the dashboard, types a name and a secret, and watches it reach every bird (Birds view, or the glow on the graph).
-- **Whistle test.** Add noise → Microphone on the computer; the judge whistles or claps at it and sees it on their phone's spectrogram while their message still arrives.
+- **Their phone is a bird.** The judge scans "Scan to become a bird" (same Wi-Fi; accept the certificate warning once: Advanced, Proceed) and taps "Turn on the microphone". Send from any bird: the phone hears the laptop's speakers and the message lands in its Inbox.
+- **Their own words.** On the phone, "🎤 Speak your message", say it, "■ Done speaking" (the phone stops listening for birds while they speak), check the text, Send. The phone sings it; turn on Add noise → Microphone on the computer so the birds in the simulated air hear it.
+- **Whistle test.** Add noise → Microphone on the computer; the judge whistles or claps at it and sees it on the air spectrogram while the message still arrives.
 - **Cut the internet.** Press it while a message is in flight; the bird windows keep filling.
 - **Shoot a bird / draw the network.** Let the judge tap a bird on the graph, or drag a line between two birds, then send again.
 - **Spy view.** Select the message; type guesses into "Spy tries a passphrase", then the real one (`demo-flock`).
 - **Camouflage.** Lower panel → Air → "Hide the chirps in the jungle", ask "can you hear the message?", then "Reveal the chirps".
-- **Take-home.** On the phone: "Save your message as a song", then "Read a song back" with that file.
+- **Take-home.** On the phone, Song tools: "Save last message as song", then "Decode a song file" with that file.
 
 ## 5. Fallbacks
 
@@ -77,6 +78,8 @@ Check: all nodes show as online on the dashboard.
 - **Show a specific shape in the simulated mesh** (for example a long line, so that a message must take many hops): type the links in the dashboard's Topology panel (for example `0-1 1-2 2-3 3-7 7-6 6-5 5-4`) and press Apply, press a preset (Two flocks, Ring, Line), or put them in `docker/topology.txt` before starting. "Use distance" returns to the grid. See README section 3, "Choosing the topology".
 - **Show that noise does not stop them**: in the dashboard's Add noise panel press "Test room noise" (or "Microphone" and talk, clap, type), raise the Gain until the meter reads about +10 dB, and send a message. It still crosses the flock about as fast as in silence. Push past +16 dB to show where it breaks. With the microphone, headphones avoid any echo from the projector speakers.
 - **Change the flock live**: in the dashboard's Birds panel, press × on a bird to remove it, or tick a few birds and press "Add bird #N" to add one linked to them. Re-running `bash scripts/demo.sh` resets the flock to birds 0 to 7.
+- **Speech to text** (the 🎤 button on the phone page) needs the internet and an ElevenLabs key in `.env` (`ELEVENLABS_API_KEY`, see `.env.example`). Say it plainly: speech to text happens *before* sending and is only a convenience for typing; the bird part needs no network. Skip it during the airplane-mode part. Check `npm run demo` prints "Speech to text: on".
+- **A phone cannot open the QR address**: it must be on the same Wi-Fi as the laptop, and some guest networks keep devices apart (use a hotspot). If `npm run demo` printed the wrong address under "Phones", run it again with `PHONE_HOST=<the laptop's Wi-Fi IP>`.
 - **A phone will not join**: use the laptop's local UI at `http://localhost:8080/?runtime=remote`.
 - **Dashboard shows "reconnecting"** right after startup: reload the page once.
 - **Fake messages or no messages**: check that every node shows the same environment and profile and the same passphrase.
