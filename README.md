@@ -20,27 +20,21 @@ Every device in the flock is a **node**. A node turns a message into a short run
 
 ## 3. Quick start: simulated mesh (no speakers needed)
 
-This starts an 8-node mesh, a simulated air ("ether") and the dashboard, all in Docker.
-
-Install once:
+This starts an 8-node mesh, a simulated air ("ether") and the dashboard, all in Docker. One command does everything: it builds the image, starts the mesh, sets the **Two flocks** topology and opens the dashboard. It needs only Docker:
 
 ```bash
-npm install
+bash scripts/demo.sh
 ```
 
-Build the image once. Build it before the first start: `sim-up.sh` builds ten services from the same image tag, and on a fresh build they can collide with "image already exists":
+(`npm run demo` does the same.) Run it again at any time to rebuild and restart; that also removes any birds you added. Add `--preset ring`, `--preset line` or `--preset distance` for another topology, and set `BIRDSONG_NO_OPEN=1` to skip opening the browser. Stop the demo with:
 
 ```bash
-docker build -f docker/Dockerfile.node -t birdsong-node .
+bash scripts/demo.sh --stop
 ```
 
-Start the mesh:
+The older `bash scripts/sim-up.sh` still starts the mesh without a topology preset (build the image first, see [Known limitations](#13-known-limitations)).
 
-```bash
-bash scripts/sim-up.sh
-```
-
-Open the dashboard at <http://localhost:3200>. If it says "reconnecting" right after startup, reload the page once. You should see 8 nodes online.
+Open the dashboard at <http://localhost:3200>. If it says "reconnecting" right after startup, reload the page once. You should see 8 nodes online. The chirps play through the page's speakers all the time; browsers start sound only after you click the page once, so click anywhere if the header says "click anywhere for sound". Use the speaker button and slider in the header to mute or change the volume.
 
 Send a message from node 0, either from its web page at <http://localhost:3100/nodes/0/> (type in the box, press **Send**) or from the command line:
 
@@ -48,21 +42,47 @@ Send a message from node 0, either from its web page at <http://localhost:3100/n
 curl -X POST localhost:3100/nodes/0/api/send -H 'Content-Type: application/json' -d '{"text":"hello flock"}'
 ```
 
-Watch it spread: on the dashboard the nodes pulse, links light up between neighbours, each node's ring fills as it collects the message, and the Messages panel lists who has decoded it and after how many hops. Node 7 is at least three hops from node 0; in our test a short message reached it in about 25 seconds. Check it there:
+Watch it spread: on the dashboard the nodes pulse, links light up between neighbours, each node's ring fills as it collects the message, and the Messages panel lists who has decoded it and after how many hops. Press **Birds** in the header to see every bird's own page in a small window, side by side. In the Two flocks topology node 7 is three hops from node 0; in our test a short message reached it in about 25 seconds. Check it there:
 
 ```bash
 curl -s localhost:3100/nodes/7/api/state
 ```
 
-Kill two nodes: press **Kill 2 random relays** on the dashboard (or **Mute** on any node in the Controls panel). The remaining nodes keep relaying, so the message can still reach the others (the "two relays killed" case is covered by an end-to-end test).
+Kill two nodes: press **Kill 2 random relays** on the dashboard (or **Mute** on any node in the Controls panel). The remaining nodes keep relaying, so the message can still reach the others (the "two relays killed" case is covered by an end-to-end test). In Two flocks every pair of nodes is joined by three separate paths, so any two dead relays leave the flock connected.
 
-Stop the mesh:
+Add and remove birds: the dashboard's **Birds** panel lists every bird with a **×** to remove it, and an **Add bird #N** button. Removing a bird stops its container (birds 0 to 7 are only stopped, so the demo command brings them back) and drops its links from the topology; it disappears from the graph, the bird windows and the controls. Adding a bird starts a new container with the next free id and the flock's current environment, profile and relay limit. In manual topology mode you first tick the birds it hears and is heard by, and those two-way links are added to the topology; in distance mode it joins at grid spot (id mod 4, id div 4). Adding a removed id (such as 2) restarts that bird's container. The graph keeps the preset's shape and places a new bird beside the birds it is linked to. From the command line:
+
+```bash
+curl -X POST localhost:3200/api/birds -H 'content-type: application/json' -d '{"links":[7,0]}'
+```
+
+```bash
+curl -X DELETE localhost:3200/api/birds/8
+```
+
+Show that the flock does not need the dashboard: press **Turn dashboard off**. The hub drops every bird and refuses them until you turn it back on, so it can neither see nor control them. The page switches to the bird windows (which talk to the birds through the proxy, not the hub) and keeps playing the air with a live spectrogram. Send a message from any bird window and watch it reach the others. Press **Turn dashboard back on** and the birds reconnect; the events they queued while it was off (up to 200 each) appear on the dashboard.
+
+Stop the mesh with `bash scripts/demo.sh --stop`. If you started it with `sim-up.sh` and added no birds, this also works:
 
 ```bash
 docker compose -f docker/compose.sim.yml down
 ```
 
-The mesh publishes two ports on your machine. **3200** is the hub: the dashboard, the node app at `/app/`, and the interaction log at `/api/log` (also written to `logs/interactions.ndjson`). **3100** is a proxy: `/nodes/<id>/` reaches node `<id>` and `/ether/` reaches the simulated air. The nodes and the ether have no ports of their own.
+The mesh publishes two ports on your machine (the nursery, which adds and removes birds, has none). **3200** is the hub: the dashboard, the node app at `/app/`, and the interaction log at `/api/log` (also written to `logs/interactions.ndjson`). **3100** is a proxy: `/nodes/<id>/` reaches node `<id>` (any id, so added birds work too) and `/ether/listen` reaches the simulated air. The nodes and the ether have no ports of their own.
+
+### Choosing the topology
+
+By default, nodes in the simulated mesh hear each other by distance (`ETHER_RANGE`, with the 4 x 2 grid from `docker/compose.sim.yml`). To state the links yourself, list them in [docker/topology.txt](docker/topology.txt):
+
+```
+0-1,2     # two-way links 0<->1 and 0<->2
+1-3
+4>5       # one-way link: 5 hears 4, 4 does not hear 5
+```
+
+When the file lists at least one link, sound travels only along the listed links (at the same loudness as two neighbours 1 unit apart), and positions and range are ignored. When the file is empty or has only comments, the nodes hear by distance. The ether reads the file at startup (`docker compose -f docker/compose.sim.yml restart ether` reloads it).
+
+To change the topology while the mesh runs, use the dashboard's **Topology** panel. It has three presets for the 8 nodes: **Two flocks** (0-3 and 4-7, each group fully linked, joined by the bridges 1-5, 2-6 and 3-4), **Ring** and **Line**; the graph draws a preset in its own fixed shape. From the command line, `node scripts/apply-topology.ts <two-flocks|ring|line>` sets one through the hub. The hub is the only service that can change it: it holds the ether's control token (`ETHER_CONTROL_TOKEN`), and the proxy does not forward `/ether/topology`. If the hub is stopped, the mesh keeps the topology it has. When the ether restarts, it goes back to the file. Without Docker, set `ETHER_TOPOLOGY='0-1,2'` (inline) or `ETHER_TOPOLOGY_FILE=<path>` on `packages/ether/src/server.ts`. The topology applies only to the simulated air. Real laptops can use `--neighbors` to ignore senders.
 
 If Docker is not available, `bash scripts/smoke-ether.sh` runs a two-node version natively (about 8 seconds) and checks that a message arrives.
 
@@ -94,6 +114,7 @@ BIRDSONG_ID=1 bash scripts/run-node.sh --key my-secret-phrase --env jungle --pro
 | `--port <n>` | `BIRDSONG_PORT` | Port of the node's web page and API (default 8080). |
 | `--camouflage` | `BIRDSONG_CAMOUFLAGE` | Play the ambient bed of the environment. |
 | `--neighbors <ids>` | `BIRDSONG_NEIGHBORS` | Only accept frames from these sender ids, for example `1,3`. |
+| `--relay-limit <n>` | `BIRDSONG_RELAY_LIMIT` | Stop relaying a message once it has been received more than `n` times. `0` = never stop. Default 5. |
 
 The full list is printed by:
 
@@ -211,24 +232,27 @@ BIRDSONG_URL=http://localhost:3100/nodes/1 node packages/node-runtime/src/cli.ts
 |---|---|---|
 | `GET /api/state` | none | The node state: id, species, config, messages in flight (with rank), and the inbox. |
 | `POST /api/send` | `{"text": "..."}` (max 140 characters) | `{"msgId": <number>}`. HTTP 400 with `{"error": "..."}` if the text is refused. |
-| `POST /api/config` | A JSON object with any of `env`, `profile`, `volume`, `muted`, `neighbors`, `camouflage` | The new node state. HTTP 400 if the body is not a JSON object or a value is refused (numbers such as `volume` are clamped to their range). |
+| `POST /api/config` | A JSON object with any of `env`, `profile`, `volume`, `muted`, `neighbors`, `camouflage`, `relayLimit` | The new node state. HTTP 400 if the body is not a JSON object or a value is refused (numbers such as `volume` are clamped to their range). |
 | `GET /api/events` (WebSocket) | none | A stream of the node's events as JSON (heard, decoded, sang, and so on). |
 
 All API responses allow cross-origin requests.
 
 ## 7. The dashboard
 
-Start it with `bash scripts/sim-up.sh` (simulated mesh) or by running the hub yourself, as in [section 4](#4-run-a-real-node-on-a-laptop). It is at <http://localhost:3200> and is meant for a projector.
+Start it with `bash scripts/demo.sh` (simulated mesh) or by running the hub yourself, as in [section 4](#4-run-a-real-node-on-a-laptop). It is at <http://localhost:3200> and is meant for a projector.
 
-- **Header:** counters for nodes online, frames heard, CRC failures (frames that arrived damaged beyond repair, or were not frames) and messages delivered.
+- **Header:** counters for nodes online, frames heard, CRC failures (frames that arrived damaged beyond repair, or were not frames) and messages delivered. Then the **Graph**/**Birds** view switch, the sound of the simulated air (mute button, volume slider and a small live spectrogram; only for the simulated mesh), and **Turn dashboard off**.
+- **Birds view:** every container bird's own page in a small window (`/app/?runtime=remote&compact=1`), four to a row. Each window has the bird's Mute button, a send box, its Inbox and its messages in flight; ↗ opens the full page. `http://localhost:3200/?view=birds` opens the dashboard in this view.
+- **Turn dashboard off:** the hub closes every node connection and refuses new ones (`POST /api/disabled` with `{"disabled": true}`; `GET` reads it), drops dashboard commands, and every open dashboard shows the bird windows and the air instead of the graph. The birds keep singing and relaying. **Turn dashboard back on** lets them reconnect.
 - **Flock graph:** one circle per node, coloured by species, with phones drawn dashed. Links between nodes light up when one hears the other, rings pulse when a node sings, and a progress ring fills as a node collects a message. Muted or offline nodes fade.
 - **Score:** a live piano-roll of the notes being sung, in the current environment's key.
-- **Controls:** **Environment** and **Profile** menus and a **Camouflage** checkbox apply to every node at once. **Kill 2 random relays** mutes two random online laptop nodes (never phones, and never the node that wrote the message you have selected). Below that, every node has its own **Mute**/**Unmute** button and a volume slider; phones are listed as "phone" and cannot be controlled.
+- **Controls:** **Environment** and **Profile** menus and a **Camouflage** checkbox apply to every node at once. **Stop relaying after N receptions** sets every node's relay limit (press Enter or leave the box): a bird that has received a message more than N times stops singing it, and the graph marks it "quiet · heard N×" for the selected message. 0 means never stop. **Kill 2 random relays** mutes two random online laptop nodes (never phones, and never the node that wrote the message you have selected). Below that, every node has its own **Mute**/**Unmute** button and a volume slider; phones are listed as "phone" and cannot be controlled.
 - **Messages:** each decoded message with its author and the nodes that decoded it (`#node (hops)`, plus the seconds since the first decode). Click a message to follow it in the graph.
 - **Join the flock:** the QR code and link for phones, see [section 5](#5-join-with-a-phone).
 - **Node pages:** only for the simulated mesh. A link to each online container node's page (served by the hub at `/app/`, talking to the node through the proxy).
-- **Interaction log:** the hub records every node event, every dashboard command and every node disconnect. `GET /api/log?since=<seq>&limit=<n>` returns `{ entries, next }`; each entry is `{ seq, t, kind: event|command|offline, data }`. With `HUB_LOG_FILE` set (the simulated mesh uses `logs/interactions.ndjson`) it is also written as one JSON object per line, and the file rotates to `.1` at 10 MiB.
-- **Listen to the simulated air:** only for the simulated mesh. It plays what the ether carries through the page's speakers, so a projector can play the flock. Press again ("Stop listening") to stop. In our check the button toggled and the page stayed connected; we could not hear the audio output.
+- **Interaction log:** the hub records every node event, every dashboard command and every node disconnect. `GET /api/log?since=<seq>&limit=<n>` returns `{ entries, next }`; each entry is `{ seq, t, kind: event|command|offline|topology|disabled|flock, data }`. With `HUB_LOG_FILE` set (the simulated mesh uses `logs/interactions.ndjson`) it is also written as one JSON object per line, and the file rotates to `.1` at 10 MiB.
+- **Birds panel:** only for the simulated mesh (shown when the hub has `NURSERY_URL`). Every container bird with **×** to remove it, and **Add bird #N** (in manual topology mode, tick its links first). The hub's `POST /api/birds` (`{"id"?, "links"?}`) and `DELETE /api/birds/<id>` do the same; both go in the interaction log as `flock` entries. See [section 3](#3-quick-start-simulated-mesh-no-speakers-needed).
+- **Topology:** only for the simulated mesh (shown when the hub has `ETHER_CONTROL_URL`). It shows whether the ether is in distance or manual mode, and the current links in the format of [section 3](#choosing-the-topology). Press a preset (**Two flocks**, **Ring**, **Line**; the active one is highlighted), or edit the text and press **Apply**, or press **Use distance** to go back to distance mode. Every open dashboard updates, and the change goes in the interaction log as a `topology` entry.
 
 The dashboard sees phones only indirectly: they send no telemetry, so the hub infers a phone when a laptop hears a frame from a sender id it does not know.
 
@@ -274,7 +298,7 @@ A short checklist; [docs/RUNBOOK.md](docs/RUNBOOK.md) has the full 3-minute scri
 4. Check the dashboard shows every laptop as online.
 5. Scan the QR code with the phones, press **Join the flock** and keep their screens on.
 6. Send a message from one node, watch it spread, mute a node mid-way.
-7. If the room is too loud or the audio fails, use the fallback: `bash scripts/sim-up.sh` and press "Listen to the simulated air".
+7. If the room is too loud or the audio fails, use the fallback: `bash scripts/demo.sh` and click the dashboard once so it plays the simulated air.
 
 ## 11. Troubleshooting
 
@@ -327,9 +351,11 @@ Run one test file with `npx vitest run <path>`. The source-code rules (relative 
 
 From [docs/PROTOCOL.md](docs/PROTOCOL.md) section 9 and the notes in `plans/README.md`:
 
+- **The nursery has the Docker socket.** To add and remove birds, the simulated mesh's `nursery` service mounts `/var/run/docker.sock` (or `$DOCKER_SOCKET`), which gives it full control of Docker on the machine. It publishes no port and accepts only the hub's token, but anyone who can reach the hub (port 3200, open on your network) can add birds (ids 0 to 127, this image only) or stop bird containers. Run the simulated mesh only on a network you trust.
+
 - **Slow.** One frame takes 8.9 s (`stealth`) or 3.0 s (`fast`) and a 140-character message needs 7 to 8 of them per hop. There are no acknowledgements; frames from several singers at once collide.
 - **Not tested in a real room.** All automated tests run against the simulated air or synthetic noise and reverb. Real-room tuning of volume and sync threshold, real speakers and microphones, and the two-browser-tab acoustic test have not been run.
-- **Not tested on real phones.** Android Chrome and iOS Safari have not been tried; iOS audio routing (earpiece, silent switch) is unverified. The "Listen to the simulated air" button toggled correctly against the live simulated mesh, but nobody has listened to its audio.
+- **Not tested on real phones.** Android Chrome and iOS Safari have not been tried; iOS audio routing (earpiece, silent switch) is unverified. The dashboard's always-on sound of the simulated air was checked only through its live spectrogram, not by ear.
 - **arm64 image not built.** The Docker image workflow builds `linux/amd64` and `linux/arm64`, but the arm64 build has not been run (the `docker buildx` plugin was not installed when it was checked).
 - **Short nonce.** A 4-byte random nonce with one key: after tens of thousands of messages on one passphrase the IV can repeat, which breaks AES-GCM for those messages.
 - **Shared passphrase.** One key per channel. Anyone with the passphrase can read and forge messages, and a replay after the 5-minute expiry is accepted again. There is no forward secrecy.

@@ -5,7 +5,7 @@ import type { IncomingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
-import { DEFAULT_NODE_CONFIG } from '@birdsong/core';
+import { DEFAULT_NODE_CONFIG, formatTopology, parseTopology } from '@birdsong/core';
 import type { Command, HubToUi, TelemetryEvent } from '@birdsong/core';
 import { startHub } from '../src/server/hub.ts';
 
@@ -125,7 +125,7 @@ describe('hub', () => {
     const r = await fetch(`http://127.0.0.1:${hub.port}/`);
     expect(await r.text()).toContain('not built');
     const c = await (await fetch(`http://127.0.0.1:${hub.port}/config.json`)).json();
-    expect(c).toEqual({ etherUrl: null, proxyUrl: null, topologyEditable: false });
+    expect(c).toEqual({ etherUrl: null, proxyUrl: null, topologyEditable: false, flockEditable: false });
   });
 
   const restart = async (extra: Parameters<typeof startHub>[0]): Promise<void> => {
@@ -142,7 +142,7 @@ describe('hub', () => {
   it('config.json carries proxyUrl', async () => {
     await restart({ proxyUrl: 'http://localhost:3100' });
     const c = await (await fetch(`http://127.0.0.1:${hub.port}/config.json`)).json();
-    expect(c).toEqual({ etherUrl: null, proxyUrl: 'http://localhost:3100', topologyEditable: false });
+    expect(c).toEqual({ etherUrl: null, proxyUrl: 'http://localhost:3100', topologyEditable: false, flockEditable: false });
   });
 
   it('/api/log records events, commands and offline in order', async () => {
@@ -244,5 +244,76 @@ describe('hub', () => {
     expect(await (await fetch(`${base}/config.json`)).json()).toMatchObject({ topologyEditable: false });
     expect((await fetch(`${base}/api/topology`)).status).toBe(503);
     expect((await fetch(`${base}/api/topology`, { method: 'PUT', body: '{"text":""}' })).status).toBe(503);
+  });
+
+  it('adds and removes birds through the nursery and keeps the topology in step', async () => {
+    // A fake ether that keeps its topology, and a fake nursery that records calls.
+    let topo = parseTopology('0-1\n1-2');
+    const view = () => ({ manual: topo !== null, text: formatTopology(topo), links: topo ? topo.links.map(([a, b]) => [a, b]) : [] });
+    const ether = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c: Buffer) => { body += c.toString(); });
+      req.on('end', () => {
+        if (req.method === 'PUT') topo = parseTopology((JSON.parse(body) as { text: string }).text);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(view()));
+      });
+    });
+    const calls: string[] = [];
+    const nurse = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c: Buffer) => { body += c.toString(); });
+      req.on('end', () => {
+        calls.push(`${req.method} ${req.url} ${req.headers.authorization} ${body}`);
+        const created = req.method === 'POST';
+        res.writeHead(created ? 201 : 200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(created ? { id: (JSON.parse(body) as { id: number }).id, started: 'new' } : { removed: true }));
+      });
+    });
+    await Promise.all([ether, nurse].map((x) => new Promise<void>((r) => x.listen(0, r))));
+    const portOf = (x: typeof ether) => (x.address() as { port: number }).port;
+    try {
+      await restart({
+        etherControlUrl: `http://127.0.0.1:${portOf(ether)}`, etherControlToken: 'tok',
+        nurseryUrl: `http://127.0.0.1:${portOf(nurse)}`, nurseryToken: 'ntok',
+      });
+      const base = `http://127.0.0.1:${hub.port}`;
+      expect(await (await fetch(`${base}/config.json`)).json()).toMatchObject({ flockEditable: true });
+      const nodes = await Promise.all([0, 1, 2].map(async (i) => {
+        const n = await open('/node');
+        n.ws.send(JSON.stringify({ ...hello(i), kind: 'container' }));
+        return n;
+      }));
+      const ui = await open('/ui');
+      await new Promise((r) => setTimeout(r, 100));
+
+      const post = (body: unknown) => fetch(`${base}/api/birds`, { method: 'POST', body: JSON.stringify(body) });
+      expect((await post({ links: [] })).status).toBe(400); // manual topology: needs a link
+      expect((await post({ id: 1, links: [0] })).status).toBe(409); // already in the flock
+      const added = await post({ links: [2, 0] });
+      expect(added.status).toBe(201);
+      expect(await added.json()).toEqual({ id: 3, links: [2, 0] });
+      expect(calls[0]).toMatch(/^POST \/birds Bearer ntok /);
+      expect(JSON.parse(calls[0]!.split(' ').slice(4).join(' '))).toMatchObject({ id: 3, x: 3, y: 0, env: 'quiet' });
+      expect(formatTopology(topo)).toBe('0-1\n0-3\n1-2\n2-3');
+
+      const removed = await fetch(`${base}/api/birds/1`, { method: 'DELETE' });
+      expect(removed.status).toBe(200);
+      expect(calls[1]).toMatch(/^DELETE \/birds\/1 Bearer ntok/);
+      expect(formatTopology(topo)).toBe('0-3\n2-3');
+      await until(() => ui.msgs.some((m) => JSON.parse(m).type === 'nodeRemoved'));
+      // Frames still in the air from bird 1 must not bring it back as a phone.
+      nodes[0]!.ws.send(JSON.stringify({ type: 'heard', node: 0, from: 1, msgId: 1, seed: 0, hop: 0, k: 2, sync: 0.5, t: 5 }));
+      await new Promise((r) => setTimeout(r, 100));
+      const late = await open('/ui');
+      await until(() => late.msgs.length > 0);
+      const snap = JSON.parse(late.msgs[0]!) as Extract<HubToUi, { type: 'snapshot' }>;
+      expect(snap.nodes.map((n) => n.node)).toEqual([0, 2]);
+      const log = await (await fetch(`${base}/api/log`)).json() as { entries: { kind: string; data: unknown }[] };
+      expect(log.entries.filter((e) => e.kind === 'flock').map((e) => e.data)).toEqual([{ added: 3, links: [2, 0] }, { removed: 1 }]);
+      for (const x of [...nodes, ui, late]) x.ws.close();
+    } finally {
+      await Promise.all([ether, nurse].map((x) => new Promise<void>((r) => x.close(() => r()))));
+    }
   });
 });

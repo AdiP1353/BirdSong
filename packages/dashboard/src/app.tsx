@@ -12,6 +12,7 @@ import { NodeLinks } from './components/NodeLinks.tsx';
 import { Topology } from './components/Topology.tsx';
 import { AirControls, AirScope } from './components/AirControls.tsx';
 import { BirdGrid } from './components/BirdGrid.tsx';
+import { FlockEditor } from './components/FlockEditor.tsx';
 
 type View = 'graph' | 'birds';
 
@@ -92,6 +93,7 @@ export function App() {
         <aside class="right" inert={off} aria-disabled={off}>
           <JoinQr join={store.join} env={env} profile={profile} />
           <Controls nodes={nodes} events={events} focus={focus} env={env} profile={profile} camouflage={camouflage} />
+          <FlockEditor nodes={nodes} topology={store.topology} />
           <Topology topology={store.topology} />
           <NodeLinks nodes={nodes} />
           <Feed messages={feed(events)} focus={focus} />

@@ -2,7 +2,9 @@
 # Published on the host: 3200 = hub (dashboard, node app /app/, /api/log), 3100 = proxy (/nodes/<id>/, /ether/).
 # The ether and the nodes publish no ports; they reach each other by service name.
 # Topology (who hears whom): docker/topology.txt at startup; live changes only through the hub (dashboard).
+# Birds added from the dashboard are extra containers started by the nursery (which mounts the Docker socket).
 x-ether-token: &etherToken sim-topology-token
+x-nursery-token: &nurseryToken sim-nursery-token
 x-node: &node
   image: birdsong-node
   build:
@@ -42,8 +44,24 @@ services:
       # Internal: the hub relays topology changes from the dashboard to the ether.
       ETHER_CONTROL_URL: http://ether:7080
       ETHER_CONTROL_TOKEN: *etherToken
+      # Internal: the hub asks the nursery to add and remove birds.
+      NURSERY_URL: http://nursery:7090
+      NURSERY_TOKEN: *nurseryToken
     volumes: ["../logs:/app/logs"]
     ports: ["3200:3200"]
+  # Starts and stops bird containers for the dashboard's Birds panel. Reached only by the hub (token, no port).
+  # It needs the Docker socket, which gives it full control of Docker on this machine.
+  nursery:
+    image: birdsong-node
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.node
+    entrypoint: ["node", "packages/node-runtime/src/nursery.ts"]
+    environment:
+      NURSERY_PORT: "7090"
+      NURSERY_TOKEN: *nurseryToken
+      NURSERY_BIRD_ARGS: --audio ether --ether ws://ether:7080 --observatory ws://hub:3200 --key demo-flock
+    volumes: ["${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock"]
   proxy:
     image: caddy:2
     volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro"]

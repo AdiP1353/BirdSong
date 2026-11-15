@@ -123,3 +123,18 @@ canvas.scope.big { width: 360px; max-width: 40%; height: 90px; }
 .relay .hint { font-size: 13px; flex: 1; min-width: 160px; }
 .presets { margin-bottom: 6px; }
 .presets button { font-size: 15px; padding: 3px 10px; }
+
+/* add / remove birds */
+.flock-editor .chips { gap: 6px; }
+.bird-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 16px; padding: 1px 2px 1px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent); }
+.bird-chip i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.bird-chip .x { font-size: 15px; line-height: 1; padding: 1px 7px; border-radius: 999px; border-width: 1px; }
+.bird-chip .x:hover:not(:disabled) { border-color: #ff8a80; color: #ff8a80; }
+.flock-editor .add { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; align-items: flex-start; }
+.flock-editor .hint { font-size: 14px; }
+.flock-editor .error { color: #ff8a80; font-size: 14px; margin-top: 6px; }
+.pick { position: relative; display: inline-flex; align-items: center; gap: 3px; font-size: 15px; padding: 1px 8px; border-radius: 999px; cursor: pointer; border: 1px solid color-mix(in srgb, var(--fg) 30%, transparent); }
+.pick input { position: absolute; opacity: 0; pointer-events: none; }
+.pick.on { background: color-mix(in srgb, var(--accent) 35%, var(--bg)); border-color: var(--accent); }
+.pick:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+

@@ -49,7 +49,9 @@ export type HubToUi =
   | { type: 'event'; event: TelemetryEvent }
   | { type: 'nodeOffline'; node: number }
   | { type: 'topology'; topology: TopologyView }
-  | { type: 'disabled'; disabled: boolean };
+  | { type: 'disabled'; disabled: boolean }
+  /** A bird was removed from the flock (its container stopped); drop it from the view. */
+  | { type: 'nodeRemoved'; node: number };
 
 /** Default ports. */
 export const HUB_PORT = 3200;

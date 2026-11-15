@@ -14,9 +14,16 @@ COMPOSE=(docker compose -f docker/compose.sim.yml)
 PRESET=two-flocks
 HUB=http://localhost:3200
 
+# Birds added from the dashboard are containers outside compose; remove them so a stop or a restart is clean.
+clear_added_birds() {
+  local ids
+  ids=$(docker ps -aq --filter label=birdsong.nursery=1 2>/dev/null || true)
+  if [ -n "$ids" ]; then docker rm -f $ids >/dev/null; fi
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    --stop|--down) "${COMPOSE[@]}" down; exit 0 ;;
+    --stop|--down) clear_added_birds; "${COMPOSE[@]}" down; exit 0 ;;
     --preset) PRESET="${2:?--preset needs a name}"; shift 2 ;;
     --preset=*) PRESET="${1#--preset=}"; shift ;;
     -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -39,8 +46,9 @@ step "Building the BirdSong image (fast after the first time)"
 # One build for all ten services: building each from compose can collide on the shared tag.
 docker build -f docker/Dockerfile.node -t birdsong-node .
 
-step "Starting the mesh: ether, hub, proxy and 8 birds"
+step "Starting the mesh: ether, hub, proxy, nursery and 8 birds"
 mkdir -p logs   # created by you, not root, before Docker bind-mounts it
+clear_added_birds
 "${COMPOSE[@]}" up -d --no-build --remove-orphans
 
 step "Waiting for the hub"

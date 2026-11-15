@@ -7,21 +7,14 @@ import type { NodeSnapshot } from '@birdsong/core';
  */
 export function BirdGrid(props: { nodes: NodeSnapshot[] }) {
   const [proxyUrl, setProxyUrl] = useState<string | null>(null);
-  const [ids, setIds] = useState<number[]>([]);
   useEffect(() => {
     fetch('/config.json').then((r) => r.json()).then(
       (c: { proxyUrl?: string | null }) => setProxyUrl(c.proxyUrl ?? null),
       () => {},
     );
   }, []);
-  // Remember every container bird ever seen, so windows stay put while nodes drop off the hub.
-  const seen = props.nodes.filter((n) => n.kind === 'container').map((n) => n.node);
-  useEffect(() => {
-    setIds((old) => {
-      const all = [...new Set([...old, ...seen])].sort((a, b) => a - b);
-      return all.join(',') === old.join(',') ? old : all;
-    });
-  }, [seen.join(',')]);
+  // The hub keeps birds that dropped off (offline) and forgets removed ones, so this is the flock to show.
+  const ids = props.nodes.filter((n) => n.kind === 'container').map((n) => n.node);
 
   if (!proxyUrl) {
     return <div class="panel birds-empty dim">Bird windows need the simulated mesh's proxy (PROXY_URL).</div>;

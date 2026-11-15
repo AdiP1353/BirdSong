@@ -6,12 +6,12 @@ import type { Command, TelemetryEvent } from '@birdsong/core';
  * 'event' = telemetry from a node, 'command' = sent from a dashboard tab, 'offline' = a node's socket closed,
  * 'topology' = the ether's topology was changed from the dashboard.
  */
-export type LogKind = 'event' | 'command' | 'offline' | 'topology' | 'disabled';
+export type LogKind = 'event' | 'command' | 'offline' | 'topology' | 'disabled' | 'flock';
 export interface LogEntry {
   seq: number;
   t: number;
   kind: LogKind;
-  data: TelemetryEvent | Command | { node: number } | { manual: boolean; text: string } | { disabled: boolean };
+  data: TelemetryEvent | Command | { node: number } | { manual: boolean; text: string } | { disabled: boolean } | { added: number; links: number[] } | { removed: number };
 }
 export interface InteractionLogOptions {
   /** NDJSON file to append to; null or absent = memory only. */

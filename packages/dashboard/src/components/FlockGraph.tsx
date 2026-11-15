@@ -4,7 +4,7 @@ import type { Simulation, SimulationLinkDatum, SimulationNodeDatum } from 'd3-fo
 import type { NodeSnapshot, TelemetryEvent } from '@birdsong/core';
 import { progressFor, relayFor, speciesColor } from '../derive.ts';
 import { store } from '../hubClient.ts';
-import { matchPreset } from '../presetMatch.ts';
+import { closestPreset } from '../presetMatch.ts';
 
 const W = 1200;
 const H = 520;
@@ -14,6 +14,8 @@ const PULSE_MS = 600;
 
 interface SimNode extends SimulationNodeDatum {
   id: number;
+  /** Already placed beside its linked birds once. */
+  placed?: boolean;
 }
 type SimLink = SimulationLinkDatum<SimNode>;
 
@@ -85,12 +87,30 @@ export function FlockGraph(props: { nodes: NodeSnapshot[]; events: TelemetryEven
   const nextLinkKey = `${wired.size > 0 ? 'w' : 'p'}:${[...layoutLinks.keys()].sort().join('|')}:${[...simNodes.current.keys()].join(',')}`;
   if (sim.current && nextLinkKey !== linkKey.current) {
     linkKey.current = nextLinkKey;
-    // A preset topology pins every node to its hand-drawn spot; anything else is laid out by force.
-    const layout = matchPreset(store.topology)?.layout ?? null;
+    // A preset topology pins every node to its hand-drawn spot. After birds are added or removed, the closest
+    // preset still pins the birds it has, and an extra bird starts beside the birds it is linked to.
+    // Distance mode, and manual topologies unlike any preset, are laid out by force.
+    const layout = closestPreset(store.topology)?.layout ?? null;
     for (const n of simNodes.current.values()) {
       const at = layout?.[n.id];
-      n.fx = at ? at[0] : null;
-      n.fy = at ? at[1] : null;
+      if (at) {
+        n.fx = at[0];
+        n.fy = at[1];
+        continue;
+      }
+      const wasPinned = n.fx != null;
+      n.fx = null;
+      n.fy = null;
+      if (!layout) continue;
+      const near = [...wired.values()]
+        .filter((l) => l.a === n.id || l.b === n.id)
+        .map((l) => simNodes.current.get(l.a === n.id ? l.b : l.a))
+        .filter((m): m is SimNode => m !== undefined && m.x !== undefined);
+      if (near.length > 0 && (wasPinned || !n.placed)) {
+        n.x = near.reduce((t, m) => t + (m.fx ?? m.x!), 0) / near.length;
+        n.y = near.reduce((t, m) => t + (m.fy ?? m.y!), 0) / near.length + 90;
+        n.placed = true;
+      }
     }
     const links: SimLink[] = [];
     for (const p of layoutLinks.values()) {

@@ -60,6 +60,28 @@ export async function setDisabled(disabled: boolean): Promise<void> {
   }
 }
 
+async function birdsCall(method: string, path: string, body?: unknown): Promise<void> {
+  const r = await fetch(path, {
+    method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const b = (await r.json().catch(() => ({}))) as { error?: string };
+    throw new Error(b.error ?? `HTTP ${r.status}`);
+  }
+}
+
+/** Add a bird (a new container); in manual topology mode it is linked two-way to `links`. */
+export function addBird(id: number | null, links: number[]): Promise<void> {
+  return birdsCall('POST', '/api/birds', { id, links });
+}
+
+/** Remove a bird: its container stops and its links leave the topology. */
+export async function removeBird(id: number): Promise<void> {
+  await birdsCall('DELETE', `/api/birds/${id}`);
+  store.state.remove(id);
+  changed();
+}
+
 export function sendCommand(cmd: Command): void {
   if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(cmd));
 }
@@ -86,6 +108,8 @@ export function connect(): void {
       store.topology = msg.topology;
     } else if (msg.type === 'disabled') {
       store.disabled = msg.disabled;
+    } else if (msg.type === 'nodeRemoved') {
+      store.state.remove(msg.node);
     }
     changed();
   };

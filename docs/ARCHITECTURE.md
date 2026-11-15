@@ -34,7 +34,7 @@ Message data travels only as sound (real air, or the ether in simulation). The h
 | Package | One line |
 |---|---|
 | `packages/core` | Pure, dependency-light library: constants, codec, modem, node engine, ambient beds, message songs, simulated-air mixer and fake modem. Runs in Node and the browser. |
-| `packages/node-runtime` | The laptop node: CLI flags, PulseAudio audio port, ambient player, local HTTP API and UI on port 8080, telemetry client. Runs in Docker. |
+| `packages/node-runtime` | The laptop node: CLI flags, PulseAudio audio port, ambient player, local HTTP API and UI on port 8080, telemetry client. Runs in Docker. Also the nursery (`src/nursery.ts`), which starts and stops bird containers for the simulated mesh through the Docker socket. |
 | `packages/web` | Phone and browser PWA (Preact + Vite): a full node in the browser, plus the remote UI for container nodes (`?runtime=remote`). Deployed to GitHub Pages. |
 | `packages/dashboard` | Hub server (WebSocket relay of events and commands, port 3200; also serves the node app at `/app/` and the interaction log) and the projector UI: flock graph, feed, controls, score, join QR. |
 | `packages/ether` | The simulated air: a WebSocket service that mixes node audio by distance or along a manual topology (`ETHER_TOPOLOGY` / `ETHER_TOPOLOGY_FILE`; `GET`/`PUT /topology`, and PUT needs `ETHER_CONTROL_TOKEN`). Used by `scripts/sim-up.sh`, CI and the fallback demo. The parser is `packages/core/src/sim/topology.ts`. |
@@ -43,9 +43,9 @@ Message data travels only as sound (real air, or the ether in simulation). The h
 
 | Port | Process | Serves |
 |---|---|---|
-| 3100 | proxy (Caddy) | `/nodes/<id>/` to each node, `/ether/listen` to the simulated air (only that path) |
-| 3200 | hub | dashboard, node app `/app/`, WebSockets `/node` and `/ui`, `/config.json`, `/api/log`, `/api/topology` (relayed to the ether) |
-| internal | ether 7080, nodes 8080 | reached by service name on the compose network, not published; the hub uses `http://ether:7080/topology` |
+| 3100 | proxy (Caddy) | `/nodes/<id>/` to the container reachable as `bird<id>` (any id, so added birds work too), `/ether/listen` to the simulated air (only that path) |
+| 3200 | hub | dashboard, node app `/app/`, WebSockets `/node` and `/ui`, `/config.json`, `/api/log`, `/api/topology` (relayed to the ether), `/api/birds` (add/remove, relayed to the nursery), `/api/disabled` |
+| internal | ether 7080, nursery 7090, nodes 8080 | reached by service name on the compose network, not published; the hub uses `http://ether:7080/topology` and `http://nursery:7090/birds` (each with a bearer token) |
 
 ## Seams
 
