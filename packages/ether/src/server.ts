@@ -20,9 +20,13 @@ export interface EtherOptions {
 }
 
 interface NodeConn { ws: WebSocket; x: number; y: number; queue: Float32Array[]; queued: number }
-interface Listener { ws: WebSocket; x: number; y: number }
+interface Listener { ws: WebSocket; x: number; y: number; noise: boolean }
+/** Background sound in the room (the dashboard's "Add noise"), heard by every node at gain 1. */
+interface NoiseSource { ws: WebSocket; queue: Float32Array[]; queued: number }
 
 const BLOCK_MS = 20;
+/** A noise source may run at most this far ahead of real time; older samples are dropped. */
+const NOISE_MAX_QUEUE_MS = 200;
 
 export function startEtherServer(opts: EtherOptions = {}): Promise<{ close(): Promise<void>; port: number }> {
   const range = opts.range ?? 1.2;
@@ -35,6 +39,8 @@ export function startEtherServer(opts: EtherOptions = {}): Promise<{ close(): Pr
   const wss = new WebSocketServer({ server });
   const nodes = new Map<number, NodeConn>();
   const listeners = new Set<Listener>();
+  const noiseSources = new Set<NoiseSource>();
+  const noiseMax = Math.round(NOISE_MAX_QUEUE_MS * sampleRate / 1000);
   const rng = mulberry32(1);
 
   const view = () => ({
@@ -61,6 +67,7 @@ export function startEtherServer(opts: EtherOptions = {}): Promise<{ close(): Pr
   }
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const path = new URL(req.url ?? '/', 'http://localhost').pathname;
+    if (path === '/noise' && req.method === 'GET') { reply(res, 200, { sources: noiseSources.size }); return; }
     if (path !== '/topology') { reply(res, 404, { error: 'not found' }); return; }
     if (req.method === 'GET') { reply(res, 200, view()); return; }
     if (req.method !== 'PUT') { reply(res, 405, { error: 'use GET or PUT' }); return; }
@@ -84,6 +91,14 @@ export function startEtherServer(opts: EtherOptions = {}): Promise<{ close(): Pr
     reply(res, 200, view());
   }
 
+  function readF32(data: unknown): Float32Array {
+    const buf = Array.isArray(data) ? Buffer.concat(data as Buffer[]) : Buffer.from(data as Buffer);
+    const n = buf.length >> 2;
+    const f = new Float32Array(n);
+    for (let i = 0; i < n; i++) f[i] = buf.readFloatLE(i * 4);
+    return f;
+  }
+
   wss.on('connection', (ws, req) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const x = Number(url.searchParams.get('x') ?? 0) || 0;
@@ -99,12 +114,9 @@ export function startEtherServer(opts: EtherOptions = {}): Promise<{ close(): Pr
       if (topology && !hasLinks(topology, id)) console.warn(`node ${id} has no links in the manual topology; it will hear nothing`);
       ws.on('message', (data, isBinary) => {
         if (!isBinary) return;
-        const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as Buffer);
-        const n = buf.length >> 2;
-        const f = new Float32Array(n);
-        for (let i = 0; i < n; i++) f[i] = buf.readFloatLE(i * 4);
+        const f = readF32(data);
         conn.queue.push(f);
-        conn.queued += n;
+        conn.queued += f.length;
       });
       ws.on('close', () => {
         if (nodes.get(id) === conn) {
@@ -113,8 +125,36 @@ export function startEtherServer(opts: EtherOptions = {}): Promise<{ close(): Pr
         }
       });
       ws.on('error', () => {});
+    } else if (url.pathname === '/noise') {
+      // Only the hub holds the control token; the public proxy does not forward /noise.
+      if (!controlToken || req.headers.authorization !== `Bearer ${controlToken}`) { ws.close(1008, 'bad or missing control token'); return; }
+      const src: NoiseSource = { ws, queue: [], queued: 0 };
+      noiseSources.add(src);
+      console.log(`noise source connected (${noiseSources.size} in the room)`);
+      ws.on('message', (data, isBinary) => {
+        if (!isBinary) return;
+        const f = readF32(data);
+        for (let i = 0; i < f.length; i++) {
+          const v = f[i]!;
+          f[i] = Number.isFinite(v) ? Math.max(-4, Math.min(4, v)) : 0;
+        }
+        src.queue.push(f);
+        src.queued += f.length;
+        // Keep the newest NOISE_MAX_QUEUE_MS: a source that runs fast (or bursts after a stall) never lags.
+        while (src.queued > noiseMax && src.queue.length > 0) {
+          const over = src.queued - noiseMax;
+          const head = src.queue[0]!;
+          if (head.length <= over) { src.queue.shift(); src.queued -= head.length; }
+          else { src.queue[0] = head.subarray(over); src.queued -= over; }
+        }
+      });
+      ws.on('close', () => {
+        noiseSources.delete(src);
+        console.log(`noise source disconnected (${noiseSources.size} left)`);
+      });
+      ws.on('error', () => {});
     } else if (url.pathname === '/listen') {
-      const l: Listener = { ws, x, y };
+      const l: Listener = { ws, x, y, noise: url.searchParams.get('noise') !== '0' };
       listeners.add(l);
       console.log(`listener connected at (${x},${y})`);
       ws.on('close', () => { listeners.delete(l); console.log('listener disconnected'); });
@@ -124,7 +164,7 @@ export function startEtherServer(opts: EtherOptions = {}): Promise<{ close(): Pr
     }
   });
 
-  function take(c: NodeConn): Float32Array {
+  function take(c: { queue: Float32Array[]; queued: number }): Float32Array {
     const out = new Float32Array(B);
     let filled = 0;
     while (filled < B && c.queue.length > 0) {
@@ -148,6 +188,12 @@ export function startEtherServer(opts: EtherOptions = {}): Promise<{ close(): Pr
     const ids = [...nodes.keys()];
     const list = [...nodes.values()];
     const tx = list.map(take);
+    let noise: Float32Array | null = null;
+    for (const src of noiseSources) {
+      const f = take(src);
+      if (!noise) noise = f;
+      else for (let k = 0; k < B; k++) noise[k]! += f[k]!;
+    }
     if (list.length > 0) {
       const topo = topology;
       const gains = list.map((a, j) => list.map((b, i) => {
@@ -156,7 +202,11 @@ export function startEtherServer(opts: EtherOptions = {}): Promise<{ close(): Pr
         return gainBetween(a, b, range);
       }));
       const rx = mixBlock(tx, gains, noiseRms, rng);
-      for (let i = 0; i < list.length; i++) sendF32(list[i]!.ws, rx[i]!);
+      for (let i = 0; i < list.length; i++) {
+        const r = rx[i]!;
+        if (noise) for (let k = 0; k < B; k++) r[k]! += noise[k]!;
+        sendF32(list[i]!.ws, r);
+      }
     }
     for (const l of listeners) {
       const out = new Float32Array(B);
@@ -165,6 +215,7 @@ export function startEtherServer(opts: EtherOptions = {}): Promise<{ close(): Pr
         const s = tx[j]!;
         for (let k = 0; k < B; k++) out[k]! += g * s[k]!;
       }
+      if (noise && l.noise) for (let k = 0; k < B; k++) out[k]! += noise[k]!;
       sendF32(l.ws, out);
     }
   }

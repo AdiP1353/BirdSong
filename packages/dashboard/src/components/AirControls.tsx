@@ -1,39 +1,20 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { air, setMuted, setVolume, subscribeAir } from '../air.ts';
+import { air, subscribeAir } from '../air.ts';
 
 function useAir(): void {
   const [, setV] = useState(0);
   useEffect(() => subscribeAir(() => setV((v) => v + 1)), []);
 }
 
-/** Header controls for the always-on sound of the simulated air. */
+/** Header strip for the always-on sound of the simulated air: a hint until the browser allows sound, and the spectrogram. */
 export function AirControls() {
   useAir();
   if (!air.available) return null;
-  const silent = air.muted || air.volume === 0;
   return (
     <div class="air">
-      <button class="icon" onClick={() => setMuted(!air.muted)} aria-label={silent ? 'Unmute chirps' : 'Mute chirps'} title={silent ? 'Unmute chirps' : 'Mute chirps'}>
-        <SpeakerIcon muted={silent} />
-      </button>
-      <input
-        type="range" min="0" max="1" step="0.05" value={air.muted ? 0 : air.volume} aria-label="Chirp volume"
-        onInput={(e) => setVolume(Number(e.currentTarget.value))}
-      />
-      {air.blocked && !air.muted && <span class="hint-blink">click anywhere for sound</span>}
+      {air.blocked && <span class="hint-blink">click anywhere for sound</span>}
       <AirScope width={160} height={34} />
     </div>
-  );
-}
-
-function SpeakerIcon(props: { muted: boolean }) {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor" />
-      {props.muted
-        ? <><path d="m16 9 5 6" /><path d="m21 9-5 6" /></>
-        : <><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M18.5 5.5a9 9 0 0 1 0 13" /></>}
-    </svg>
   );
 }
 

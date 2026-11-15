@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import type { IncomingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { WebSocket } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
 import { DEFAULT_NODE_CONFIG, formatTopology, parseTopology } from '@birdsong/core';
 import type { Command, HubToUi, TelemetryEvent } from '@birdsong/core';
 import { startHub } from '../src/server/hub.ts';
@@ -121,11 +121,51 @@ describe('hub', () => {
     for (const x of [ui, late, back]) x.ws.close();
   });
 
+  it('stop mutes every bird, including ones that connect later; start unmutes them', async () => {
+    const base = `http://127.0.0.1:${hub.port}`;
+    const ui = await open('/ui');
+    await until(() => ui.msgs.length > 0);
+    expect((JSON.parse(ui.msgs[0]!) as Extract<HubToUi, { type: 'snapshot' }>).stopped).toBe(false);
+    const a = await open('/node');
+    a.ws.send(JSON.stringify(hello(1)));
+    await until(() => ui.msgs.length >= 2);
+    const post = (stopped: unknown) => fetch(`${base}/api/stopped`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stopped }),
+    });
+    expect((await post('yes')).status).toBe(400);
+    expect(await (await post(true)).json()).toEqual({ stopped: true });
+    const mute = { type: 'configure', node: 'all', patch: { muted: true } };
+    await until(() => a.msgs.length === 1);
+    expect(JSON.parse(a.msgs[0]!)).toEqual(mute);
+    await until(() => ui.msgs.some((m) => { const x = JSON.parse(m) as HubToUi; return x.type === 'stopped' && x.stopped; }));
+    expect(await (await fetch(`${base}/api/stopped`)).json()).toEqual({ stopped: true });
+
+    // A bird that joins (or comes back) while stopped is muted as soon as it says hello.
+    const b = await open('/node');
+    b.ws.send(JSON.stringify(hello(2)));
+    await until(() => b.msgs.length === 1);
+    expect(JSON.parse(b.msgs[0]!)).toEqual(mute);
+    const late = await open('/ui');
+    await until(() => late.msgs.length > 0);
+    expect((JSON.parse(late.msgs[0]!) as Extract<HubToUi, { type: 'snapshot' }>).stopped).toBe(true);
+
+    expect(await (await post(false)).json()).toEqual({ stopped: false });
+    await until(() => a.msgs.length === 2 && b.msgs.length === 2);
+    expect(JSON.parse(a.msgs[1]!)).toEqual({ type: 'configure', node: 'all', patch: { muted: false } });
+    const log = await (await fetch(`${base}/api/log`)).json() as { entries: { kind: string; data: unknown }[] };
+    expect(log.entries.filter((e) => e.kind === 'stopped').map((e) => e.data)).toEqual([{ stopped: true }, { stopped: false }]);
+
+    // While the dashboard is off the hub cannot reach the birds, so stop is refused.
+    await fetch(`${base}/api/disabled`, { method: 'POST', body: JSON.stringify({ disabled: true }) });
+    expect((await post(true)).status).toBe(409);
+    for (const x of [ui, late, a, b]) x.ws.close();
+  });
+
   it('serves a notice when dist is missing and config.json', async () => {
     const r = await fetch(`http://127.0.0.1:${hub.port}/`);
     expect(await r.text()).toContain('not built');
     const c = await (await fetch(`http://127.0.0.1:${hub.port}/config.json`)).json();
-    expect(c).toEqual({ etherUrl: null, proxyUrl: null, topologyEditable: false, flockEditable: false });
+    expect(c).toEqual({ etherUrl: null, proxyUrl: null, topologyEditable: false, flockEditable: false, noiseEditable: false });
   });
 
   const restart = async (extra: Parameters<typeof startHub>[0]): Promise<void> => {
@@ -142,7 +182,7 @@ describe('hub', () => {
   it('config.json carries proxyUrl', async () => {
     await restart({ proxyUrl: 'http://localhost:3100' });
     const c = await (await fetch(`http://127.0.0.1:${hub.port}/config.json`)).json();
-    expect(c).toEqual({ etherUrl: null, proxyUrl: 'http://localhost:3100', topologyEditable: false, flockEditable: false });
+    expect(c).toEqual({ etherUrl: null, proxyUrl: 'http://localhost:3100', topologyEditable: false, flockEditable: false, noiseEditable: false });
   });
 
   it('/api/log records events, commands and offline in order', async () => {
@@ -315,5 +355,56 @@ describe('hub', () => {
     } finally {
       await Promise.all([ether, nurse].map((x) => new Promise<void>((r) => x.close(() => r()))));
     }
+  });
+
+  it('relays a dashboard noise source to the ether with the control token, and tells every tab', async () => {
+    // A fake ether that accepts /noise sockets and records what arrives.
+    const fake = createServer((_req, res) => { res.writeHead(404).end(); });
+    const wss = new WebSocketServer({ server: fake });
+    const got: { auth: string | undefined; bytes: number[] }[] = [];
+    const etherSockets: WebSocket[] = [];
+    wss.on('connection', (ws, req) => {
+      etherSockets.push(ws);
+      const rec = { auth: req.headers.authorization, path: req.url, bytes: [] as number[] };
+      got.push(rec);
+      ws.on('message', (d: Buffer, isBinary) => { if (isBinary) rec.bytes.push(...d); });
+    });
+    await new Promise<void>((r) => fake.listen(0, r));
+    const fakePort = (fake.address() as { port: number }).port;
+    try {
+      await restart({ etherControlUrl: `http://127.0.0.1:${fakePort}`, etherControlToken: 'tok' });
+      const base = `http://127.0.0.1:${hub.port}`;
+      expect(await (await fetch(`${base}/config.json`)).json()).toMatchObject({ noiseEditable: true });
+      const ui = await open('/ui');
+      await until(() => ui.msgs.length > 0);
+      expect((JSON.parse(ui.msgs[0]!) as Extract<HubToUi, { type: 'snapshot' }>).noiseSources).toBe(0);
+
+      const src = await open('/noise');
+      await until(() => got.length === 1);
+      expect(got[0]!.auth).toBe('Bearer tok');
+      src.ws.send(JSON.stringify({ source: 'mic', level: 4 }));
+      const pcm = new Float32Array([0.25, -0.5, 0.125]);
+      src.ws.send(new Uint8Array(pcm.buffer));
+      await until(() => got[0]!.bytes.length === 12);
+      expect(Array.from(new Float32Array(new Uint8Array(got[0]!.bytes).buffer))).toEqual([0.25, -0.5, 0.125]);
+      await until(() => ui.msgs.some((m) => { const x = JSON.parse(m) as HubToUi; return x.type === 'noise' && x.sources === 1; }));
+
+      src.ws.close();
+      await until(() => ui.msgs.some((m) => { const x = JSON.parse(m) as HubToUi; return x.type === 'noise' && x.sources === 0; }));
+      await until(() => etherSockets[0]!.readyState === WebSocket.CLOSED);
+      const log = await (await fetch(`${base}/api/log`)).json() as { entries: { kind: string; data: unknown }[] };
+      expect(log.entries.filter((e) => e.kind === 'noise').map((e) => e.data)).toEqual([
+        { sources: 1 }, { source: 'mic', level: 4 }, { sources: 0 },
+      ]);
+      ui.ws.close();
+    } finally {
+      for (const ws of etherSockets) ws.terminate();
+      wss.close();
+      await new Promise<void>((r) => fake.close(() => r()));
+    }
+  });
+
+  it('refuses noise sources without an ether control URL', async () => {
+    await expect(open('/noise')).rejects.toThrow();
   });
 });

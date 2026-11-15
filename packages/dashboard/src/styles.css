@@ -89,7 +89,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 .seg button:last-child { border-radius: 0 8px 8px 0; border-left-width: 0; }
 .seg button.on, .presets button.on { background: color-mix(in srgb, var(--accent) 35%, var(--bg)); border-color: var(--accent); }
 .air { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; }
-.air input[type=range] { width: 110px; }
+.stop { font-size: 16px; padding: 4px 12px; border-color: #ff8a80; }
+.stop.stopped { background: #1f6f3a; border-color: #7be07b; color: #fff; font-weight: 700; }
 button.icon { padding: 3px 8px; line-height: 0; }
 .hint-blink { color: #ffd54f; animation: blink 1.6s ease-in-out infinite; }
 @keyframes blink { 50% { opacity: 0.35; } }
@@ -138,3 +139,20 @@ canvas.scope.big { width: 360px; max-width: 40%; height: 90px; }
 .pick.on { background: color-mix(in srgb, var(--accent) 35%, var(--bg)); border-color: var(--accent); }
 .pick:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+/* add noise */
+.noise { display: flex; flex-direction: column; gap: 8px; }
+.noise h2 { margin-bottom: 0; }
+.noise .hint { font-size: 14px; opacity: 0.8; }
+.noise .seg.left { margin-left: 0; flex-wrap: wrap; }
+.noise .gain { display: flex; flex-direction: column; gap: 2px; font-size: 15px; }
+.noise .gain input { width: 100%; }
+.noise .meter { position: relative; height: 10px; border-radius: 999px; background: color-mix(in srgb, var(--fg) 12%, transparent); overflow: hidden; }
+.noise .meter .fill { height: 100%; transition: width 0.1s linear; }
+.noise .meter .mark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--fg); opacity: 0.6; }
+.noise .fill.ok { background: #7be07b; }
+.noise .fill.warn { background: #ffd54f; }
+.noise .fill.bad { background: #ff8a80; }
+.noise .verdict { font-size: 15px; }
+.noise .verdict.warn b { color: #ffd54f; }
+.noise .verdict.bad b { color: #ff8a80; }
+.noise .error { color: #ff8a80; font-size: 14px; }

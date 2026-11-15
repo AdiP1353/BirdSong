@@ -11,6 +11,10 @@ export interface Store {
   topology: TopologyView | null;
   /** The hub has cut itself off from the flock (the "disable dashboard" demo). */
   disabled: boolean;
+  /** Noise sources feeding the air right now (from any dashboard tab). */
+  noiseSources: number;
+  /** "Stop birds" is on: the hub keeps every bird muted. */
+  stopped: boolean;
   version: number;
 }
 
@@ -23,6 +27,8 @@ export const store: Store = {
   focus: null,
   topology: null,
   disabled: false,
+  noiseSources: 0,
+  stopped: false,
   version: 0,
 };
 
@@ -47,6 +53,17 @@ export function setFocus(msgId: number | null): void {
 export function setTopology(t: TopologyView): void {
   store.topology = t;
   changed();
+}
+
+/** Stop every bird (the hub mutes them all, and any bird that joins) or start them all again. */
+export async function setStopped(stopped: boolean): Promise<void> {
+  const r = await fetch('/api/stopped', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stopped }),
+  });
+  if (r.ok) {
+    store.stopped = ((await r.json()) as { stopped: boolean }).stopped;
+    changed();
+  }
 }
 
 /** Turn the dashboard off (the hub drops every node) or back on. */
@@ -100,6 +117,8 @@ export function connect(): void {
       store.state.load(msg.nodes as NodeSnapshot[], msg.recent as TelemetryEvent[]);
       store.join = msg.join;
       store.disabled = msg.disabled ?? false;
+      store.noiseSources = msg.noiseSources ?? 0;
+      store.stopped = msg.stopped ?? false;
     } else if (msg.type === 'event') {
       store.state.apply(msg.event, msg.event.t);
     } else if (msg.type === 'nodeOffline') {
@@ -110,6 +129,10 @@ export function connect(): void {
       store.disabled = msg.disabled;
     } else if (msg.type === 'nodeRemoved') {
       store.state.remove(msg.node);
+    } else if (msg.type === 'noise') {
+      store.noiseSources = msg.sources;
+    } else if (msg.type === 'stopped') {
+      store.stopped = msg.stopped;
     }
     changed();
   };

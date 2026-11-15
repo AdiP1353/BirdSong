@@ -1,3 +1,4 @@
+import FFT from 'fft.js';
 import { FRAME_AIR_LEN } from '../constants.ts';
 import { envBand, PROFILES } from '../envs.ts';
 import { symbolsToBytes } from '../symbols.ts';
@@ -13,9 +14,26 @@ import { buildSymbolTemplates } from './templates.ts';
 
 const ENERGY_BLOCK_MS = 20;
 const NOISE_FLOOR_WINDOW_MS = 5000;
-const ACTIVE_RATIO = 4;
+/**
+ * Carrier sense ("is another bird singing?"). A block counts as song when it is
+ * - tonal: the strongest ~230 Hz slice of the pass band holds at least TONAL_RATIO times the median slice
+ *   (a chirp is one narrow line; fans, hiss, speech and clicks spread over the band), and
+ * - louder than the quietest block of the last 5 s by ACTIVE_RATIO (so a steady whistle or hum is not song), and
+ * - above ACTIVE_MIN_POWER.
+ * Two of the last three blocks must count, so a lone noise spike does not hold the air for HANGOVER_MS.
+ * Energy alone is not enough: with a microphone in a busy room it is above the floor most of the time.
+ */
+const TONAL_RATIO = 16;
+const TONAL_SLICE_HZ = 230;
+const ACTIVE_RATIO = 1.5;
 const ACTIVE_MIN_POWER = 1e-7;
 const HANGOVER_MS = 250;
+/**
+ * A pending sync candidate holds the air on its own only if it scored at least this. Weaker ones (data chirps
+ * that happen to look like a sync score about 0.25-0.33) count only while song is heard anyway; otherwise one
+ * found inside a frame would keep the channel busy for a whole frame after that frame ended.
+ */
+const STRONG_SYNC = 0.4;
 const EXTRA_BUFFER_MS = 2000;
 const DEMOD_TAIL_MS = 2;
 
@@ -54,6 +72,21 @@ export function createModem(opts: ModemOptions): Modem {
   let epoch = 0;
 
   // carrier sense
+  const blockSamples = new Float32Array(blockLen);
+  let fftN = 1;
+  while (fftN < blockLen) fftN <<= 1;
+  const fft = new FFT(fftN);
+  const fftIn = fft.createComplexArray() as number[];
+  const fftOut = fft.createComplexArray() as number[];
+  const hann = new Float32Array(blockLen);
+  for (let i = 0; i < blockLen; i++) hann[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * (i + 0.5)) / blockLen);
+  const binHz = sampleRate / fftN;
+  const k0 = Math.max(1, Math.ceil(band.lowHz / binHz));
+  const k1 = Math.min(fftN / 2 - 1, Math.floor(band.highHz / binHz));
+  const slice = Math.max(1, Math.min(k1 - k0 + 1, Math.round(TONAL_SLICE_HZ / binHz)));
+  const slices = new Float64Array(Math.max(1, k1 - k0 + 2 - slice));
+  const sorted = new Float64Array(slices.length);
+  let tonalRecent = 0; // bit i = block i ago was song-like
   const history = new Float64Array(floorBlocks);
   let historyCount = 0;
   let historyPos = 0;
@@ -86,11 +119,36 @@ export function createModem(opts: ModemOptions): Modem {
     bufBase += drop;
   }
 
+  /** Strongest slice of the pass band over the median slice, for the block in blockSamples. */
+  function tonality(): number {
+    for (let i = 0; i < fftN; i++) {
+      fftIn[2 * i] = i < blockLen ? blockSamples[i]! * hann[i]! : 0;
+      fftIn[2 * i + 1] = 0;
+    }
+    fft.transform(fftOut, fftIn);
+    let acc = 0;
+    let j = 0;
+    for (let k = k0; k <= k1; k++) {
+      acc += fftOut[2 * k]! ** 2 + fftOut[2 * k + 1]! ** 2;
+      const drop = k - slice;
+      if (drop >= k0) acc -= fftOut[2 * drop]! ** 2 + fftOut[2 * drop + 1]! ** 2;
+      if (k - k0 + 1 >= slice) slices[j++] = Math.max(0, acc);
+    }
+    let peak = 0;
+    for (let i = 0; i < j; i++) {
+      sorted[i] = slices[i]!;
+      if (slices[i]! > peak) peak = slices[i]!;
+    }
+    const med = sorted.subarray(0, j).sort()[j >> 1]!;
+    return med > 0 ? peak / med : peak > 0 ? Infinity : 0;
+  }
+
   function energy(x: Float32Array, endOfChunk: number): void {
     // endOfChunk: absolute index just after the last sample of x
     const startAbs = endOfChunk - x.length;
     for (let i = 0; i < x.length; i++) {
       blockAcc += x[i]! * x[i]!;
+      blockSamples[blockFill] = x[i]!;
       blockFill++;
       if (blockFill === blockLen) {
         const power = blockAcc / blockLen;
@@ -102,7 +160,10 @@ export function createModem(opts: ModemOptions): Modem {
         historyCount++;
         let floor = Infinity;
         for (let k = 0; k < floorBlocks; k++) if (history[k]! < floor) floor = history[k]!;
-        if (power > ACTIVE_RATIO * floor && power > ACTIVE_MIN_POWER) lastActiveEnd = startAbs + i + 1;
+        const song = power > ACTIVE_RATIO * floor && power > ACTIVE_MIN_POWER && tonality() >= TONAL_RATIO;
+        tonalRecent = ((tonalRecent << 1) | (song ? 1 : 0)) & 0b111;
+        const count = (tonalRecent & 1) + ((tonalRecent >> 1) & 1) + ((tonalRecent >> 2) & 1);
+        if (song && count >= 2) lastActiveEnd = startAbs + i + 1;
       }
     }
   }
@@ -141,8 +202,8 @@ export function createModem(opts: ModemOptions): Modem {
       callback = cb;
     },
     busy(): boolean {
-      if (candidates.length > 0) return true;
-      return lastActiveEnd >= 0 && total() - lastActiveEnd <= hangover;
+      if (lastActiveEnd >= 0 && total() - lastActiveEnd <= hangover) return true;
+      return candidates.some((c) => c.score >= STRONG_SYNC);
     },
     reset(): void {
       epoch++;
@@ -154,6 +215,7 @@ export function createModem(opts: ModemOptions): Modem {
       history.fill(0);
       historyCount = 0;
       historyPos = 0;
+      tonalRecent = 0;
       blockAcc = 0;
       blockFill = 0;
       lastActiveEnd = -1;

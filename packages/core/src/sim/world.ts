@@ -29,6 +29,11 @@ export interface SimWorld {
   setAlive(index: number, alive: boolean): void;
   /** Replace the manual topology (port indexes); null = hear by distance. */
   setTopology(t: Topology | null): void;
+  /**
+   * Background sound heard by every live port at gain 1, whatever the topology (a microphone in the room,
+   * like the ether's noise sources). `source(n)` returns the next n samples. null = none.
+   */
+  setAmbient(source: ((n: number) => Float32Array) | null): void;
   /** Called after every block; the world awaits all of them before continuing. */
   onSettle(fn: () => Promise<void>): void;
   /** Simulate `ms` of time. */
@@ -66,6 +71,7 @@ export function createSimWorld(opts: SimWorldOptions): SimWorld {
   const hooks: Array<() => Promise<void>> = [];
   let gains: number[][] = [];
   let topology: Topology | null = opts.topology ?? null;
+  let ambient: ((n: number) => Float32Array) | null = null;
 
   function recompute() {
     gains = ports.map((p, j) => ports.map((q, i) => {
@@ -100,6 +106,10 @@ export function createSimWorld(opts: SimWorldOptions): SimWorld {
       tx.push(out);
     }
     const rx = mixBlock(tx, gains, noiseRms, rng);
+    if (ambient) {
+      const a = ambient(B);
+      for (const r of rx) for (let k = 0; k < B; k++) r[k]! += a[k]!;
+    }
     for (let i = 0; i < n; i++) {
       const p = ports[i]!;
       if (p.alive && p.started && p.cb) p.cb(rx[i]!);
@@ -152,6 +162,7 @@ export function createSimWorld(opts: SimWorldOptions): SimWorld {
       topology = t;
       recompute();
     },
+    setAmbient(source) { ambient = source; },
     onSettle(fn) { hooks.push(fn); },
     async run(ms) {
       await runUntil(() => false, ms);

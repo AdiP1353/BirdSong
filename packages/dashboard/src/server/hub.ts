@@ -56,11 +56,20 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
   const nodeSockets = new Map<number, WebSocket>();
   const socketNode = new Map<WebSocket, number>();
   const uiSockets = new Set<WebSocket>();
+  /** Upstream sockets to the ether's /noise, one per dashboard noise source. */
+  const noiseUpstreams = new Set<WebSocket>();
+  let noiseSources = 0;
   /**
    * Disabled = the demo's "turn the dashboard off": the hub drops every node connection and refuses new
    * ones, so it neither sees nor controls the flock. Messages still travel bird to bird through the air.
    */
   let disabled = false;
+  /**
+   * "Stop birds": every bird is muted (it neither sings nor listens), and a bird that connects while this is on
+   * is muted as soon as it says hello. Start unmutes every bird.
+   */
+  let stopped = false;
+  const muteAll = (muted: boolean): string => JSON.stringify({ type: 'configure', node: 'all', patch: { muted } } satisfies Command);
 
   const sendUi = (msg: HubToUi): void => {
     const s = JSON.stringify(msg);
@@ -269,6 +278,33 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
     sendUi({ type: 'disabled', disabled });
   }
 
+  async function stoppedRoute(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const reply = (status: number, body: unknown): void => {
+      res.writeHead(status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(body));
+    };
+    if (req.method === 'GET') { reply(200, { stopped }); return; }
+    if (req.method !== 'POST') { reply(405, { error: 'use GET or POST' }); return; }
+    let body: unknown;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch (err) {
+      reply(400, { error: (err as Error).message });
+      return;
+    }
+    const v = (body as { stopped?: unknown } | null)?.stopped;
+    if (typeof v !== 'boolean') { reply(400, { error: 'body must be {"stopped": true|false}' }); return; }
+    if (disabled) { reply(409, { error: 'the dashboard is off, so it cannot reach the birds' }); return; }
+    if (v !== stopped) {
+      stopped = v;
+      log.append('stopped', { stopped });
+      const text = muteAll(stopped);
+      for (const s of nodeSockets.values()) if (s.readyState === WebSocket.OPEN) s.send(text);
+      sendUi({ type: 'stopped', stopped });
+    }
+    reply(200, { stopped });
+  }
+
   async function disabledRoute(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const reply = (status: number, body: unknown): void => {
       res.writeHead(status, { 'content-type': 'application/json' });
@@ -296,9 +332,16 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
       await disabledRoute(req, res);
       return;
     }
+    if (p === '/api/stopped') {
+      await stoppedRoute(req, res);
+      return;
+    }
     if (p === '/config.json') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ etherUrl, proxyUrl, topologyEditable: etherControlUrl !== null, flockEditable: nurseryUrl !== null }));
+      res.end(JSON.stringify({
+        etherUrl, proxyUrl, topologyEditable: etherControlUrl !== null, flockEditable: nurseryUrl !== null,
+        noiseEditable: etherControlUrl !== null,
+      }));
       return;
     }
     if (p === '/api/birds' || p.startsWith('/api/birds/')) {
@@ -335,8 +378,12 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
 
   server.on('upgrade', (req, socket, head) => {
     const path = new URL(req.url ?? '/', 'http://x').pathname;
-    if (path !== '/node' && path !== '/ui') {
+    if (path !== '/node' && path !== '/ui' && path !== '/noise') {
       socket.destroy();
+      return;
+    }
+    if (path === '/noise' && !etherControlUrl) {
+      socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
       return;
     }
     if (path === '/node' && disabled) {
@@ -345,6 +392,7 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
       if (path === '/node') onNode(ws);
+      else if (path === '/noise') onNoise(ws);
       else onUi(ws);
     });
   });
@@ -368,6 +416,7 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
         }
         nodeSockets.set(event.node, ws);
         socketNode.set(ws, event.node);
+        if (stopped && !event.config?.muted) ws.send(muteAll(true));
       }
       state.apply(event, now);
       log.append('event', event);
@@ -385,11 +434,54 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
     ws.on('error', () => {});
   }
 
+  /**
+   * A dashboard tab that feeds noise (its microphone, or test noise) into the room. Binary messages are
+   * Float32 PCM at the ether's rate and go straight to the ether's /noise with the control token, which only
+   * the hub holds. A text message {source, level} says what is playing, for the log.
+   */
+  function onNoise(ws: WebSocket): void {
+    const up = new WebSocket(`${etherControlUrl!.replace(/^http/, 'ws')}/noise`, {
+      headers: etherControlToken ? { authorization: `Bearer ${etherControlToken}` } : {},
+    });
+    noiseUpstreams.add(up);
+    noiseSources++;
+    log.append('noise', { sources: noiseSources });
+    sendUi({ type: 'noise', sources: noiseSources });
+    let closed = false;
+    const close = (): void => {
+      if (closed) return;
+      closed = true;
+      noiseUpstreams.delete(up);
+      noiseSources--;
+      log.append('noise', { sources: noiseSources });
+      sendUi({ type: 'noise', sources: noiseSources });
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close();
+      if (up.readyState === WebSocket.OPEN) up.close();
+      else if (up.readyState === WebSocket.CONNECTING) up.terminate();
+    };
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) {
+        // Real-time sound: if the ether link is not up yet, drop it rather than queue it.
+        if (up.readyState === WebSocket.OPEN) up.send(data, { binary: true });
+        return;
+      }
+      let m: { source?: unknown; level?: unknown };
+      try { m = JSON.parse(data.toString()) as typeof m; } catch { return; }
+      if (typeof m !== 'object' || m === null) return;
+      if (typeof m.source !== 'string' || m.source.length > 16 || typeof m.level !== 'number' || !Number.isFinite(m.level)) return;
+      log.append('noise', { source: m.source, level: m.level });
+    });
+    ws.on('close', close);
+    ws.on('error', () => {});
+    up.on('close', close);
+    up.on('error', () => {});
+  }
+
   function onUi(ws: WebSocket): void {
     uiSockets.add(ws);
     const snap: HubToUi = {
       type: 'snapshot', nodes: state.snapshot(), recent: state.recent(),
-      join: { pwaUrl, passphrase }, disabled,
+      join: { pwaUrl, passphrase }, disabled, noiseSources, stopped,
     };
     ws.send(JSON.stringify(snap));
     ws.on('message', (data) => {
@@ -425,6 +517,7 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
         close() {
           return new Promise<void>((done) => {
             for (const ws of wss.clients) ws.terminate();
+            for (const ws of noiseUpstreams) ws.terminate();
             log.close();
             wss.close();
             server.closeAllConnections();

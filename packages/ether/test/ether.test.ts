@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
+import { WebSocket as WsClient } from 'ws';
 import { parseTopology } from '@birdsong/core';
 import { startEtherServer, topologyFromEnv } from '../src/server.ts';
 import { createEtherPort } from '../src/client.ts';
@@ -108,5 +109,81 @@ describe('ether', () => {
     expect(topologyFromEnv({ ETHER_TOPOLOGY_FILE: '/nonexistent/topology.txt' })).toBeNull();
     expect(() => topologyFromEnv({ ETHER_TOPOLOGY: '0-1', ETHER_TOPOLOGY_FILE: '/x' })).toThrow(/not both/);
     expect(() => topologyFromEnv({ ETHER_TOPOLOGY: 'nope' })).toThrow(/nope/);
+  });
+
+  it('noise sources: token only, heard by every node whatever the topology, and by listeners unless noise=0', async () => {
+    const srv = await startEtherServer({
+      port: 0, noiseRms: 0, sampleRate: 48000, topology: parseTopology('1>3'), controlToken: 'secret',
+    });
+    const url = `ws://127.0.0.1:${srv.port}`;
+    const http = `http://127.0.0.1:${srv.port}`;
+    const mine: ReturnType<typeof createEtherPort>[] = [];
+    const socks: WsClient[] = [];
+    const openWs = (path: string, token?: string) => new Promise<{ ws: WsClient; closed: Promise<number>; best: () => number; reset: () => void }>((res, rej) => {
+      const ws = new WsClient(`${url}${path}`, token ? { headers: { authorization: `Bearer ${token}` } } : {});
+      socks.push(ws);
+      let best = 0;
+      const closed = new Promise<number>((r) => ws.on('close', (code) => r(code)));
+      ws.on('message', (d: Buffer) => {
+        const f = new Float32Array(d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength));
+        if (f.length) best = Math.max(best, rms(f));
+      });
+      ws.on('open', () => res({ ws, closed, best: () => best, reset: () => { best = 0; } }));
+      ws.on('error', rej);
+    });
+    const send = (ws: WsClient, f: Float32Array) => ws.send(new Uint8Array(f.buffer, f.byteOffset, f.byteLength));
+    try {
+      // 2 hears nobody in the topology, but noise is in the room, not on a link.
+      const B = createEtherPort({ url, id: 2, x: 0, y: 0 });
+      mine.push(B);
+      let bBest = 0;
+      B.onInput((f) => { bBest = Math.max(bBest, rms(f)); });
+      await B.start();
+
+      expect((await openWs('/noise').then((c) => c.closed))).toBe(1008);
+      expect((await openWs('/noise', 'wrong').then((c) => c.closed))).toBe(1008);
+      expect(await (await fetch(`${http}/noise`)).json()).toEqual({ sources: 0 });
+
+      const withNoise = await openWs('/listen?x=0&y=0');
+      const without = await openWs('/listen?x=0&y=0&noise=0');
+      const src = await openWs('/noise', 'secret');
+      await new Promise((r) => setTimeout(r, 50));
+      expect(await (await fetch(`${http}/noise`)).json()).toEqual({ sources: 1 });
+      send(src.ws, sine(9600));
+      await new Promise((r) => setTimeout(r, 400));
+      expect(bBest).toBeGreaterThan(0.25);
+      expect(withNoise.best()).toBeGreaterThan(0.25);
+      expect(without.best()).toBe(0);
+
+      // A source that sends faster than real time is cut to a short queue, so noise never lags far behind.
+      send(src.ws, sine(96000));
+      await new Promise((r) => setTimeout(r, 700));
+      bBest = 0;
+      await new Promise((r) => setTimeout(r, 200));
+      expect(bBest).toBe(0);
+
+      src.ws.close();
+      await src.closed;
+      await new Promise((r) => setTimeout(r, 50));
+      expect(await (await fetch(`${http}/noise`)).json()).toEqual({ sources: 0 });
+    } finally {
+      for (const s of socks) s.terminate();
+      for (const p of mine) await p.stop();
+      await srv.close();
+    }
+  }, 10000);
+
+  it('refuses noise sources when no control token is configured', async () => {
+    const srv = await startEtherServer({ port: 0, noiseRms: 0 });
+    try {
+      const code = await new Promise<number>((res, rej) => {
+        const ws = new WsClient(`ws://127.0.0.1:${srv.port}/noise`, { headers: { authorization: 'Bearer x' } });
+        ws.on('close', (c) => res(c));
+        ws.on('error', rej);
+      });
+      expect(code).toBe(1008);
+    } finally {
+      await srv.close();
+    }
   });
 });

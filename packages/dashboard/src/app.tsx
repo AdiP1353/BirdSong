@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { ENVS } from '@birdsong/core';
-import { setDisabled, store, subscribe } from './hubClient.ts';
+import { setDisabled, setStopped, store, subscribe } from './hubClient.ts';
 import { dominantEnv, feed, latestMsgId, stats } from './derive.ts';
 import { startAir } from './air.ts';
 import { FlockGraph } from './components/FlockGraph.tsx';
@@ -13,6 +13,7 @@ import { Topology } from './components/Topology.tsx';
 import { AirControls, AirScope } from './components/AirControls.tsx';
 import { BirdGrid } from './components/BirdGrid.tsx';
 import { FlockEditor } from './components/FlockEditor.tsx';
+import { NoisePanel } from './components/NoisePanel.tsx';
 
 type View = 'graph' | 'birds';
 
@@ -32,6 +33,10 @@ export function App() {
   const pickView = (v: View): void => {
     setView(v);
     try { localStorage.setItem('birdsong.dash.view', v); } catch { /* private mode */ }
+  };
+  const toggleStopped = (): void => {
+    setBusy(true);
+    void setStopped(!store.stopped).finally(() => setBusy(false));
   };
   const toggleDisabled = (): void => {
     setBusy(true);
@@ -61,6 +66,12 @@ export function App() {
           <button class={view === 'birds' ? 'on' : ''} disabled={off} onClick={() => pickView('birds')}>Birds</button>
         </div>
         <AirControls />
+        <button
+          class={`stop ${store.stopped ? 'stopped' : ''}`} disabled={busy || off || !store.connected} onClick={toggleStopped}
+          title={store.stopped ? 'Unmute every bird' : 'Mute every bird: they stop singing (and listening) until you press Start'}
+        >
+          {store.stopped ? '▶ Start birds' : '■ Stop birds'}
+        </button>
         <button class={`power ${off ? 'off' : ''}`} disabled={busy || !store.connected} onClick={toggleDisabled}>
           {off ? 'Turn dashboard back on' : 'Turn dashboard off'}
         </button>
@@ -93,6 +104,7 @@ export function App() {
         <aside class="right" inert={off} aria-disabled={off}>
           <JoinQr join={store.join} env={env} profile={profile} />
           <Controls nodes={nodes} events={events} focus={focus} env={env} profile={profile} camouflage={camouflage} />
+          <NoisePanel sources={store.noiseSources} />
           <FlockEditor nodes={nodes} topology={store.topology} />
           <Topology topology={store.topology} />
           <NodeLinks nodes={nodes} />

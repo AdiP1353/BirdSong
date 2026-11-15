@@ -4,14 +4,16 @@ import type { Command, TelemetryEvent } from '@birdsong/core';
 
 /**
  * 'event' = telemetry from a node, 'command' = sent from a dashboard tab, 'offline' = a node's socket closed,
- * 'topology' = the ether's topology was changed from the dashboard.
+ * 'topology' = the ether's topology was changed from the dashboard, 'noise' = a noise source joined or left
+ * (`{sources}`) or said what it plays (`{source, level}`), 'stopped' = "Stop birds" switched on or off.
  */
-export type LogKind = 'event' | 'command' | 'offline' | 'topology' | 'disabled' | 'flock';
+export type LogKind = 'event' | 'command' | 'offline' | 'topology' | 'disabled' | 'flock' | 'noise' | 'stopped';
 export interface LogEntry {
   seq: number;
   t: number;
   kind: LogKind;
-  data: TelemetryEvent | Command | { node: number } | { manual: boolean; text: string } | { disabled: boolean } | { added: number; links: number[] } | { removed: number };
+  data: TelemetryEvent | Command | { node: number } | { manual: boolean; text: string } | { disabled: boolean } | { added: number; links: number[] } | { removed: number }
+    | { sources: number } | { source: string; level: number } | { stopped: boolean };
 }
 export interface InteractionLogOptions {
   /** NDJSON file to append to; null or absent = memory only. */

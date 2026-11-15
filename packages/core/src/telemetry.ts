@@ -45,13 +45,21 @@ export type HubToUi =
       type: 'snapshot'; nodes: NodeSnapshot[]; recent: TelemetryEvent[]; join: { pwaUrl: string; passphrase: string };
       /** The dashboard is disabled: the hub has cut off every node (see POST /api/disabled). */
       disabled: boolean;
+      /** Noise sources (dashboard tabs feeding a microphone or test noise into the ether) right now. */
+      noiseSources: number;
+      /** "Stop birds" is on: the hub keeps every bird muted (see POST /api/stopped). */
+      stopped: boolean;
     }
   | { type: 'event'; event: TelemetryEvent }
   | { type: 'nodeOffline'; node: number }
   | { type: 'topology'; topology: TopologyView }
   | { type: 'disabled'; disabled: boolean }
   /** A bird was removed from the flock (its container stopped); drop it from the view. */
-  | { type: 'nodeRemoved'; node: number };
+  | { type: 'nodeRemoved'; node: number }
+  /** The number of noise sources in the room changed. */
+  | { type: 'noise'; sources: number }
+  /** "Stop birds" was switched on or off. */
+  | { type: 'stopped'; stopped: boolean };
 
 /** Default ports. */
 export const HUB_PORT = 3200;
