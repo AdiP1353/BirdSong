@@ -165,7 +165,7 @@ describe('hub', () => {
     const r = await fetch(`http://127.0.0.1:${hub.port}/`);
     expect(await r.text()).toContain('not built');
     const c = await (await fetch(`http://127.0.0.1:${hub.port}/config.json`)).json();
-    expect(c).toEqual({ etherUrl: null, proxyUrl: null, topologyEditable: false, flockEditable: false, noiseEditable: false });
+    expect(c).toEqual({ etherUrl: null, proxyUrl: null, topologyEditable: false, flockEditable: false, noiseEditable: false, publicUrl: null });
   });
 
   const restart = async (extra: Parameters<typeof startHub>[0]): Promise<void> => {
@@ -182,7 +182,7 @@ describe('hub', () => {
   it('config.json carries proxyUrl', async () => {
     await restart({ proxyUrl: 'http://localhost:3100' });
     const c = await (await fetch(`http://127.0.0.1:${hub.port}/config.json`)).json();
-    expect(c).toEqual({ etherUrl: null, proxyUrl: 'http://localhost:3100', topologyEditable: false, flockEditable: false, noiseEditable: false });
+    expect(c).toEqual({ etherUrl: null, proxyUrl: 'http://localhost:3100', topologyEditable: false, flockEditable: false, noiseEditable: false, publicUrl: null });
   });
 
   it('/api/log records events, commands and offline in order', async () => {
@@ -407,4 +407,27 @@ describe('hub', () => {
   it('refuses noise sources without an ether control URL', async () => {
     await expect(open('/noise')).rejects.toThrow();
   });
+
+  it('turns a message into a song file and decodes it back, in the flock\'s environment and profile', async () => {
+    await restart({ passphrase: 'take-home', publicUrl: 'http://192.168.1.9:3200/' });
+    const base = `http://127.0.0.1:${hub.port}`;
+    expect(await (await fetch(`${base}/config.json`)).json()).toMatchObject({ publicUrl: 'http://192.168.1.9:3200' });
+    const n = await open('/node');
+    n.ws.send(JSON.stringify({ ...hello(1), config: { ...DEFAULT_NODE_CONFIG, env: 'coast', profile: 'fast' } }));
+    await new Promise((r) => setTimeout(r, 100));
+    const bad = await fetch(`${base}/api/song`, { method: 'POST', body: JSON.stringify({ text: '' }) });
+    expect(bad.status).toBe(400);
+    const r = await fetch(`${base}/api/song`, { method: 'POST', body: JSON.stringify({ text: 'Ada: hello birds', alias: 'Ada' }) });
+    expect(r.status).toBe(200);
+    expect(r.headers.get('content-type')).toBe('audio/wav');
+    expect(r.headers.get('content-disposition')).toMatch(/attachment; filename="birdsong-.*\.wav"/);
+    const wav = new Uint8Array(await r.arrayBuffer());
+    expect(wav.length).toBeGreaterThan(100_000);
+    const back = await fetch(`${base}/api/song/decode`, { method: 'POST', body: wav });
+    expect(back.status).toBe(200);
+    expect(await back.json()).toMatchObject({ messages: [{ text: 'Ada: hello birds', alias: 'Ada' }] });
+    const junk = await fetch(`${base}/api/song/decode`, { method: 'POST', body: new Uint8Array([1, 2, 3]) });
+    expect(junk.status).toBe(400);
+    n.ws.close();
+  }, 60_000);
 });

@@ -3,6 +3,9 @@
  * and keeps reconnecting. Browsers start audio only after a click or key press, so until then `blocked` is true
  * and incoming sound is dropped (not queued). To silence the birds, use "Stop birds" (hubClient.setStopped).
  */
+import { AMBIENT_LEVEL, renderAmbient } from '@birdsong/core';
+import type { EnvName } from '@birdsong/core';
+
 const RATE = 48000;
 const MAX_LEAD_S = 0.5;
 const VOLUME = 0.8;
@@ -11,10 +14,15 @@ export interface Air {
   available: boolean;
   blocked: boolean;
   connected: boolean;
+  /** Everything this page plays: the birds, plus the camouflage ambience when it is on. */
   analyser: AnalyserNode | null;
+  /** The birds (and injected noise) alone, without the ambience: what "reveal the chirps" highlights. */
+  chirps: AnalyserNode | null;
+  /** Environment whose ambience is playing, or null. */
+  ambient: EnvName | null;
 }
 
-export const air: Air = { available: false, blocked: true, connected: false, analyser: null };
+export const air: Air = { available: false, blocked: true, connected: false, analyser: null, chirps: null, ambient: null };
 
 const listeners = new Set<() => void>();
 const changed = (): void => { for (const fn of listeners) fn(); };
@@ -27,6 +35,40 @@ let ctx: AudioContext | null = null;
 let out: GainNode | null = null;
 let bus: GainNode | null = null;
 let next = 0;
+let mix: GainNode | null = null;
+let bed: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
+let wantAmbient: EnvName | null = null;
+
+/**
+ * Camouflage: loop the environment's ambient bed under the birds, as a camouflaged bird's speaker would.
+ * null (or an environment with no bed, like the quiet room) stops it.
+ */
+export function setAmbient(env: EnvName | null): void {
+  wantAmbient = env !== null && AMBIENT_LEVEL[env] > 0 ? env : null;
+  if (!ctx || !mix || wantAmbient === air.ambient) return;
+  if (bed) {
+    try { bed.src.stop(); } catch { /* not started */ }
+    bed.gain.disconnect();
+    bed = null;
+  }
+  air.ambient = wantAmbient;
+  if (wantAmbient) {
+    const pcm = renderAmbient(wantAmbient, 20, RATE, 1);
+    const buf = ctx.createBuffer(1, pcm.length, RATE);
+    buf.copyToChannel(pcm as Float32Array<ArrayBuffer>, 0);
+    const gain = ctx.createGain();
+    gain.gain.value = AMBIENT_LEVEL[wantAmbient];
+    gain.connect(mix);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    src.connect(gain);
+    src.start();
+    bed = { src, gain };
+  }
+  changed();
+}
+
 let sock: WebSocket | null = null;
 /** Whether the playback includes the ether's noise sources (off while this page's microphone feeds them). */
 let withNoise = true;
@@ -87,15 +129,25 @@ export function startAir(): void {
     if (!c.etherUrl || ctx) return;
     ctx = new AudioContext({ sampleRate: RATE });
     bus = ctx.createGain();
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 1024;
-    analyser.smoothingTimeConstant = 0.2;
+    mix = ctx.createGain();
+    const mk = (): AnalyserNode => {
+      const a = ctx!.createAnalyser();
+      a.fftSize = 1024;
+      a.smoothingTimeConstant = 0.2;
+      return a;
+    };
+    const analyser = mk();
+    const chirps = mk();
     out = ctx.createGain();
-    bus.connect(analyser);
-    bus.connect(out);
+    bus.connect(chirps);
+    bus.connect(mix);
+    mix.connect(analyser);
+    mix.connect(out);
     out.gain.value = VOLUME;
     out.connect(ctx.destination);
     air.analyser = analyser;
+    air.chirps = chirps;
+    if (wantAmbient) setAmbient(wantAmbient);
     air.available = true;
     air.blocked = ctx.state !== 'running';
     ctx.onstatechange = () => { air.blocked = ctx!.state !== 'running'; changed(); };

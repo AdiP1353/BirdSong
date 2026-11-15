@@ -9,6 +9,7 @@ export * from './util/clock.ts';
 export * from './util/wav.ts';
 export * from './util/hex.ts';
 export * from './util/score.ts';
+export * from './util/spectrum.ts';
 export * from './codec/index.ts';
 export * from './modem/index.ts';
 export * from './sim/index.ts';

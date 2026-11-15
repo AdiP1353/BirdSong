@@ -1,5 +1,5 @@
-import { ENV_NAMES } from '@birdsong/core';
-import type { EnvName, NodeSnapshot, TelemetryEvent } from '@birdsong/core';
+import { ENV_NAMES, formatTopology, parseTopology } from '@birdsong/core';
+import type { EnvName, NodeSnapshot, TelemetryEvent, TopologyView } from '@birdsong/core';
 
 export const SPECIES_COLORS = ['#e69f00', '#56b4e9', '#cc79a7', '#a6d854'];
 export const speciesColor = (s: number): string => SPECIES_COLORS[s % SPECIES_COLORS.length]!;
@@ -108,4 +108,65 @@ export function relayFor(events: TelemetryEvent[], msgId: number | null): Map<nu
   if (msgId === null) return out;
   for (const e of events) if (e.type === 'relay' && e.msgId === msgId) out.set(e.node, { active: e.active, count: e.count });
   return out;
+}
+
+export interface Singing { node: number; msgId: number; t: number; durationMs: number; hop: number }
+
+/** Birds singing a frame right now (from `singing` events), newest per bird. */
+export function singingNow(events: TelemetryEvent[], now: number): Singing[] {
+  const by = new Map<number, Singing>();
+  for (const e of events) {
+    if (e.type === 'singing' && now - e.t < e.durationMs) by.set(e.node, { node: e.node, msgId: e.msgId, t: e.t, durationMs: e.durationMs, hop: e.hop });
+    else if (e.type === 'sang') { const s = by.get(e.node); if (s && e.t >= s.t) by.delete(e.node); }
+  }
+  return [...by.values()];
+}
+
+export interface Trail {
+  /** The path the message took: for each bird, the bird it first heard the message from. */
+  edges: { from: number; to: number; t: number }[];
+  /** Hops from the writer, for birds that decoded it. */
+  hops: Map<number, number>;
+}
+
+/** Where one message has been: first-heard edges, and the hop count at every bird that decoded it. */
+export function trailFor(events: TelemetryEvent[], msgId: number | null): Trail {
+  const edges: Trail['edges'] = [];
+  const hops = new Map<number, number>();
+  if (msgId === null) return { edges, hops };
+  const reached = new Set<number>();
+  for (const e of events) {
+    if (!('msgId' in e) || e.msgId !== msgId) continue;
+    if (e.type === 'heard' && !reached.has(e.node)) {
+      reached.add(e.node);
+      edges.push({ from: e.from, to: e.node, t: e.t });
+    } else if (e.type === 'decoded') {
+      hops.set(e.node, e.hops);
+      if (e.hops === 0) reached.add(e.node);
+    }
+  }
+  return { edges, hops };
+}
+
+/** A stable colour for a message, so its glow can be told from another message's. */
+export function messageColor(msgId: number): string {
+  return `hsl(${(msgId * 137) % 360} 95% 68%)`;
+}
+
+/**
+ * The topology text after linking or unlinking birds a and b (two-way), as when the judge drags a line on the
+ * graph. In distance mode there are no links to edit, so the result starts from `observed` (pairs that heard
+ * each other lately). Returns null when the edit would remove the last link (no links means distance mode).
+ */
+export function toggleLinkText(view: TopologyView | null, a: number, b: number, observed: [number, number][]): string | null {
+  if (a === b) return view?.text ?? null;
+  let links: [number, number][] = view?.manual
+    ? view.links.map(([x, y]) => [x, y])
+    : observed.flatMap(([x, y]): [number, number][] => [[x, y], [y, x]]);
+  const linked = links.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+  if (linked) links = links.filter(([x, y]) => !((x === a && y === b) || (x === b && y === a)));
+  else links.push([a, b], [b, a]);
+  if (links.length === 0) return null;
+  const text = links.map(([x, y]) => `${x}>${y}`).join(' ');
+  return formatTopology(parseTopology(text));
 }

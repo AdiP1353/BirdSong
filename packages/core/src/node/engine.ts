@@ -416,6 +416,10 @@ export function createBirdNode(opts: BirdNodeOptions): BirdNode {
       payload: makeDroplet(entry.blocks!, seed),
     });
     const pcm = modem.encode(air, species);
+    emit({
+      type: 'singing', node: id, msgId: entry.msgId, seed, hop: entry.hop, k: entry.k,
+      durationMs: (pcm.length / port.sampleRate) * 1000, t: clock.now(),
+    });
     singing = true;
     try {
       await port.play(pcm);

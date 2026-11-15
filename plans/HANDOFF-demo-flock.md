@@ -122,6 +122,32 @@ button is in the header.
   Start unmutes every bird, including ones muted one by one; after a hub restart the flag is off but the birds
   stay muted until Start (or Stop then Start).
 
+### Round 4 (committed after `d8b2d36`, not pushed): nine hands-on demo ideas
+
+Written 2026-11-15. All in the dashboard package unless noted. Pure logic was written test-first.
+
+| Idea | What was built | Where |
+|---|---|---|
+| 1 Judge sends | Phone page `/?view=judge` behind a "Send a message" QR (LAN address from `HUB_PUBLIC_URL`, found by `demo.sh`). Sends through a random singing bird via the proxy, shows who has read it and in how many hops. | `components/Judge.tsx`, `JoinQr.tsx`, `main.tsx`, hub `publicUrl`, `scripts/demo.sh`, `docker/compose.sim.yml` |
+| 2 Whistle test | Phone spectrogram drawn from the ether's listen socket with no AudioContext; the noise comes from the computer's microphone (Add noise). A phone on plain http cannot use its own microphone. | `components/PcmScope.tsx`, `core/src/util/spectrum.ts` |
+| 3 Cut the internet | The off switch renamed and restyled: dark page, blinking NETWORK DOWN. | `app.tsx`, `styles.css` |
+| 4 Travelling glow | New `singing` telemetry event at the start of a frame; dots travel singer → hearers over the frame, per-message colour, trail and hop badge for the selected message. | `core/src/node/engine.ts`, `core/src/telemetry.ts`, `derive.ts` (`singingNow`, `trailFor`), `FlockGraph.tsx` |
+| 5 Draw the network | Drag bird to bird toggles a two-way link through `PUT /api/topology`. | `derive.ts` (`toggleLinkText`), `FlockGraph.tsx` |
+| 6 Shoot a bird | Tap a bird to mute or unmute it; red cross and flash. | `FlockGraph.tsx` |
+| 7 Spy view | Rebuilds the envelope from `sang` frames in the browser, shows ciphertext as scrambled text, tries a typed passphrase. | `spy.ts`, `components/SpyPanel.tsx` |
+| 8 Camouflage reveal | Lower-left Score/Air switch; Air = big spectrogram, ambience played on the page, chirp-only analyser painted yellow on reveal. | `air.ts` (`setAmbient`, `air.chirps`), `components/AirPanel.tsx`, `AirControls.tsx` |
+| 9 Take-home song | Hub `POST /api/song` and `/api/song/decode`; buttons on the judge page. | `server/hub.ts`, `Judge.tsx` |
+
+Checked: typecheck clean, unit and e2e suites (counts in the commit message or re-run them). Live in the demo:
+judge page sent "Ada: the eagle lands at noon" via bird 6 and 6 of 7 birds read it; glow, trail and hop badges;
+shot bird 3; drew link 0-7; spy view failed with a wrong passphrase and opened with `demo-flock`; reveal painted
+chirps yellow; NETWORK DOWN showed with bird windows still filling.
+**Not verified:** a real phone (the agent's browser pane blocked the LAN address on port 3100, so the judge page
+was exercised on localhost; the LAN routes were checked with curl and a WebSocket client); the song download on
+a phone; the camouflage by ear (on the spectrogram the chirps are still visible before the reveal, because the
+ambience is mostly low-pitched); the Microphone noise source.
+Also fixed: the Add noise source buttons had the class `left`, which picked up the page's grid rule.
+
 ### Round 2 (`36252be`)
 
 | Feature | Where |

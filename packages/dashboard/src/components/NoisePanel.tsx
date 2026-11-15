@@ -31,7 +31,7 @@ export function NoisePanel(props: { sources: number }) {
         Mixes background noise into the air every bird hears, on top of their songs. Birds filter it: the band-pass
         and matched filters ignore most of it, and carrier sense waits only for tonal chirps, not for room noise.
       </div>
-      <div class="seg left" role="group" aria-label="Noise source">
+      <div class="seg start" role="group" aria-label="Noise source">
         {SOURCES.map((s) => (
           <button
             key={s.id} class={noise.source === s.id ? 'on' : ''} disabled={noise.starting}

@@ -14,8 +14,11 @@ import { AirControls, AirScope } from './components/AirControls.tsx';
 import { BirdGrid } from './components/BirdGrid.tsx';
 import { FlockEditor } from './components/FlockEditor.tsx';
 import { NoisePanel } from './components/NoisePanel.tsx';
+import { AirPanel } from './components/AirPanel.tsx';
+import { SpyPanel } from './components/SpyPanel.tsx';
 
 type View = 'graph' | 'birds';
+type Bottom = 'score' | 'air';
 
 function loadView(): View {
   const q = new URLSearchParams(location.search).get('view');
@@ -27,6 +30,13 @@ export function App() {
   const [, setV] = useState(0);
   const [view, setView] = useState<View>(loadView);
   const [busy, setBusy] = useState(false);
+  const [bottom, setBottom] = useState<Bottom>(() => {
+    try { return localStorage.getItem('birdsong.dash.bottom') === 'air' ? 'air' : 'score'; } catch { return 'score'; }
+  });
+  const pickBottom = (b: Bottom): void => {
+    setBottom(b);
+    try { localStorage.setItem('birdsong.dash.bottom', b); } catch { /* private mode */ }
+  };
   useEffect(() => subscribe(() => setV((v) => v + 1)), []);
   useEffect(() => startAir(), []);
 
@@ -73,7 +83,7 @@ export function App() {
           {store.stopped ? '▶ Start birds' : '■ Stop birds'}
         </button>
         <button class={`power ${off ? 'off' : ''}`} disabled={busy || !store.connected} onClick={toggleDisabled}>
-          {off ? 'Turn dashboard back on' : 'Turn dashboard off'}
+          {off ? '⏻ Restore the network' : '✂ Cut the internet'}
         </button>
         <span class={`conn ${store.connected ? 'ok' : 'bad'}`}>{store.connected ? (off ? 'off' : 'live') : 'reconnecting'}</span>
       </header>
@@ -82,11 +92,11 @@ export function App() {
           {off && (
             <div class="panel off-banner">
               <div>
-                <h2>The dashboard is off</h2>
+                <h2 class="down">NETWORK DOWN</h2>
                 <p>
-                  The hub has cut every bird loose: it can't see them and can't control them. Listen, and watch their
-                  own windows below. They still sing to each other, and messages still hop from bird to bird.
-                  Try sending one.
+                  The internet is cut: the hub has lost every bird. It can't see them and can't control them.
+                  Listen. They still sing to each other, and messages still hop from bird to bird, by sound alone.
+                  Send one and watch it land in their windows below.
                 </p>
               </div>
               <AirScope width={360} height={90} class="big" />
@@ -97,7 +107,15 @@ export function App() {
           ) : (
             <>
               <FlockGraph nodes={nodes} events={events} focus={focus} />
-              <Score nodes={nodes} events={events} env={env} />
+              <div class="bottom">
+                <div class="seg bottom-pick" role="group" aria-label="Lower panel">
+                  <button class={bottom === 'score' ? 'on' : ''} onClick={() => pickBottom('score')}>Score</button>
+                  <button class={bottom === 'air' ? 'on' : ''} onClick={() => pickBottom('air')}>Air</button>
+                </div>
+                {bottom === 'score'
+                  ? <Score nodes={nodes} events={events} env={env} />
+                  : <AirPanel env={env} camouflage={camouflage} disabled={off} />}
+              </div>
             </>
           )}
         </section>
@@ -105,6 +123,7 @@ export function App() {
           <JoinQr join={store.join} env={env} profile={profile} />
           <Controls nodes={nodes} events={events} focus={focus} env={env} profile={profile} camouflage={camouflage} />
           <NoisePanel sources={store.noiseSources} />
+          <SpyPanel events={events} focus={focus} message={feed(events).find((m) => m.msgId === focus)} />
           <FlockEditor nodes={nodes} topology={store.topology} />
           <Topology topology={store.topology} />
           <NodeLinks nodes={nodes} />

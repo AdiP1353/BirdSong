@@ -46,6 +46,15 @@ step "Building the BirdSong image (fast after the first time)"
 # One build for all ten services: building each from compose can collide on the shared tag.
 docker build -f docker/Dockerfile.node -t birdsong-node .
 
+# This computer's address on the local network, so a phone can open the "Send a message" page from the QR code.
+if [ -z "${HUB_PUBLIC_URL:-}" ]; then
+  LAN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit }}' || true)
+  if [ -z "$LAN_IP" ]; then LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || true); fi
+  if [ -z "$LAN_IP" ]; then LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true); fi
+  if [ -n "$LAN_IP" ]; then HUB_PUBLIC_URL="http://$LAN_IP:3200"; fi
+fi
+export HUB_PUBLIC_URL="${HUB_PUBLIC_URL:-}"
+
 step "Starting the mesh: ether, hub, proxy, nursery and 8 birds"
 mkdir -p logs   # created by you, not root, before Docker bind-mounts it
 clear_added_birds
@@ -90,6 +99,7 @@ cat <<MSG
 BirdSong demo is running.
 
   Dashboard:     $HUB            (Birds view: $HUB/?view=birds)
+  Judge's phone: ${HUB_PUBLIC_URL:-http://<this computer>:3200}/?view=judge   (same Wi-Fi; also the dashboard's QR code)
   Bird pages:    http://localhost:3100/nodes/0/ ... /nodes/7/
   Send from 0:   curl -X POST localhost:3100/nodes/0/api/send -H 'Content-Type: application/json' -d '{"text":"hello flock"}'
   Stop:          npm run demo:stop

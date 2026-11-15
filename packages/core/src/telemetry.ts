@@ -11,6 +11,8 @@ export type TelemetryEvent =
   | { type: 'bad'; node: number; reason: 'crc' | 'netTag' | 'neighbor' | 'auth'; t: number }
   | { type: 'rank'; node: number; msgId: number; rank: number; k: number; t: number }
   | { type: 'decoded'; node: number; msgId: number; hops: number; text: string; alias: string; t: number }
+  /** The node starts singing a frame that lasts durationMs (`sang` follows when it ends). */
+  | { type: 'singing'; node: number; msgId: number; seed: number; hop: number; k: number; durationMs: number; t: number }
   | { type: 'sang'; node: number; msgId: number; seed: number; hop: number; k: number; airHex: string; durationMs: number; t: number }
   | { type: 'expired'; node: number; msgId: number; t: number }
   /** The node stopped (active: false) or resumed (active: true) relaying a message; count = receptions so far. */

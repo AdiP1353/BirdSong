@@ -55,10 +55,20 @@ Check: all nodes show as online on the dashboard.
 2. **Join (20 s).** A judge scans the QR on the dashboard, opens the page, taps "Join the flock", allows the microphone. The phone shows up on the dashboard once a laptop hears it.
 3. **Send (30 s).** On a laptop, open `http://localhost:8080/?runtime=remote`, type a message, press "Send".
 4. **Watch it hop (40 s).** On the dashboard, point at the links pulsing and the rings filling as nodes collect droplets (a stealth frame is about 9 s long, so narrate while it travels; the fast profile is about 3 s per frame).
-5. **Kill the relays (30 s).** While the message is in flight, press "Kill 2 random relays". Say: "No central server, no fixed route." Then press "Turn dashboard off": the hub lets go of every bird, but you still hear them and the bird windows still fill up. Say: "The dashboard only watches. Turn it off and the flock carries on." Turn it back on.
+5. **Kill the relays (30 s).** While the message is in flight, press "Kill 2 random relays". Say: "No central server, no fixed route." Then press "✂ Cut the internet" (NETWORK DOWN): the hub lets go of every bird, but you still hear them and the bird windows still fill up. Say: "The dashboard only watches. Turn it off and the flock carries on." Turn it back on.
 6. **It still lands (20 s).** The message appears on the far laptop and on the judge's phone.
 7. **Songs (20 s).** On the judge's phone use "Save last message as song" and then "Decode a song file" (or pick one of the files in `samples/`) to show the saved birdsong decodes back to the text. Playing that file near the room's microphones also works in principle (a song is ordinary frames), but this was not tested with real speakers.
 8. **Camouflage (20 s).** On the dashboard switch Environment to Jungle and tick "Camouflage": ambient forest sound is mixed in and the chirps sit inside it.
+
+### Hands-on moments for the simulated mesh (`bash scripts/demo.sh`)
+
+- **Their own words.** The judge scans "Send a message" on the dashboard, types a name and a secret, and watches it reach every bird (Birds view, or the glow on the graph).
+- **Whistle test.** Add noise → Microphone on the computer; the judge whistles or claps at it and sees it on their phone's spectrogram while their message still arrives.
+- **Cut the internet.** Press it while a message is in flight; the bird windows keep filling.
+- **Shoot a bird / draw the network.** Let the judge tap a bird on the graph, or drag a line between two birds, then send again.
+- **Spy view.** Select the message; type guesses into "Spy tries a passphrase", then the real one (`demo-flock`).
+- **Camouflage.** Lower panel → Air → "Hide the chirps in the jungle", ask "can you hear the message?", then "Reveal the chirps".
+- **Take-home.** On the phone: "Save your message as a song", then "Read a song back" with that file.
 
 ## 5. Fallbacks
 

@@ -44,7 +44,7 @@ Message data travels only as sound (real air, or the ether in simulation). The h
 | Port | Process | Serves |
 |---|---|---|
 | 3100 | proxy (Caddy) | `/nodes/<id>/` to the container reachable as `bird<id>` (any id, so added birds work too), `/ether/listen` to the simulated air (only that path) |
-| 3200 | hub | dashboard, node app `/app/`, WebSockets `/node`, `/ui` and `/noise` (dashboard noise, relayed to the ether), `/config.json`, `/api/log`, `/api/topology` (relayed to the ether), `/api/birds` (add/remove, relayed to the nursery), `/api/disabled`, `/api/stopped` (mute or unmute every bird) |
+| 3200 | hub | dashboard, node app `/app/`, WebSockets `/node`, `/ui` and `/noise` (dashboard noise, relayed to the ether), `/config.json`, `/api/log`, `/api/topology` (relayed to the ether), `/api/birds` (add/remove, relayed to the nursery), `/api/disabled`, `/api/stopped` (mute or unmute every bird), `/api/song` and `/api/song/decode` (message to WAV and back), the judge's phone page `/?view=judge` |
 | internal | ether 7080, nursery 7090, nodes 8080 | reached by service name on the compose network, not published; the hub uses `http://ether:7080/topology`, `ws://ether:7080/noise` and `http://nursery:7090/birds` (each with a bearer token) |
 
 ## Seams

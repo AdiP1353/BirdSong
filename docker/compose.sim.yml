@@ -40,6 +40,8 @@ services:
       # Browser-facing URLs (opened by the dashboard page on the host):
       ETHER_URL: ws://localhost:3100/ether
       PROXY_URL: http://localhost:3100
+      # Address of this computer on the local network, for the "Send a message" QR code (set by scripts/demo.sh).
+      HUB_PUBLIC_URL: ${HUB_PUBLIC_URL:-}
       HUB_LOG_FILE: /app/logs/interactions.ndjson
       # Internal: the hub relays topology changes from the dashboard to the ether.
       ETHER_CONTROL_URL: http://ether:7080

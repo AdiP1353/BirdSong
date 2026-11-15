@@ -4,7 +4,10 @@ import { readFile } from 'node:fs/promises';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
-import { HUB_PORT, formatTopology, parseTopology } from '@birdsong/core';
+import {
+  DEFAULT_NODE_CONFIG, HUB_PORT, MAX_ALIAS_CHARS, MAX_TEXT_CHARS, decodeSong, decodeWav, encodeWav, formatTopology,
+  parseTopology, renderMessageSong,
+} from '@birdsong/core';
 import type { Command, HubToUi, TelemetryEvent, TopologyView } from '@birdsong/core';
 import { createHubState } from './state.ts';
 import { createInteractionLog } from './interactionLog.ts';
@@ -29,6 +32,11 @@ export interface HubOptions {
   nurseryUrl?: string | null;
   /** Bearer token the nursery expects. */
   nurseryToken?: string | null;
+  /**
+   * Base URL at which phones on the same network reach this hub (e.g. http://192.168.1.9:3200). The dashboard
+   * puts it in the "Send a message" QR code. null/absent = the dashboard uses its own address.
+   */
+  publicUrl?: string | null;
 }
 
 const MIME: Record<string, string> = {
@@ -49,6 +57,9 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
   const etherControlToken = opts.etherControlToken ?? null;
   const nurseryUrl = opts.nurseryUrl ? opts.nurseryUrl.replace(/\/+$/, '') : null;
   const nurseryToken = opts.nurseryToken ?? null;
+  const publicUrl = opts.publicUrl ? opts.publicUrl.replace(/\/+$/, '') : null;
+  const SONG_RATE = 48_000;
+  const SONG_MAX_BYTES = 24 * 1024 * 1024;
   const distDir = resolve(opts.distDir ?? join(here, '..', '..', 'dist'));
   const webDistDir = resolve(opts.webDistDir ?? join(here, '..', '..', '..', 'web', 'dist'));
   const log = createInteractionLog({ file: opts.logFile ?? null });
@@ -109,18 +120,56 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
     }
   }
 
-  function readBody(req: IncomingMessage): Promise<string> {
+  function readBytes(req: IncomingMessage, max: number): Promise<Buffer> {
     return new Promise((ok, fail) => {
       const chunks: Buffer[] = [];
       let size = 0;
       req.on('data', (c: Buffer) => {
         size += c.length;
-        if (size > 16384) { fail(new Error('body too large')); req.destroy(); return; }
+        if (size > max) { fail(new Error('body too large')); req.destroy(); return; }
         chunks.push(c);
       });
-      req.on('end', () => ok(Buffer.concat(chunks).toString('utf8')));
+      req.on('end', () => ok(Buffer.concat(chunks)));
       req.on('error', fail);
     });
+  }
+  const readBody = async (req: IncomingMessage): Promise<string> => (await readBytes(req, 16384)).toString('utf8');
+
+  /**
+   * Take-home birdsong. POST /api/song {text, alias?} returns the message as a WAV of ordinary frames, in the
+   * flock's current environment and profile; POST /api/song/decode (a WAV body) reads one back. The hub does
+   * this for phones, whose browsers have no WebCrypto on a plain-http page.
+   */
+  async function songRoute(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+    const reply = (status: number, body: unknown): void => {
+      res.writeHead(status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(body));
+    };
+    if (req.method !== 'POST') { reply(405, { error: 'use POST' }); return; }
+    const like = state.snapshot().find((n) => n.online && n.kind !== 'browser') ?? state.snapshot()[0];
+    const env = like?.config.env ?? DEFAULT_NODE_CONFIG.env;
+    const profile = like?.config.profile ?? DEFAULT_NODE_CONFIG.profile;
+    try {
+      if (path === '/api/song/decode') {
+        const { pcm, sampleRate } = decodeWav(new Uint8Array(await readBytes(req, SONG_MAX_BYTES)));
+        reply(200, { messages: await decodeSong(pcm, { passphrase, env, profile, sampleRate }) });
+        return;
+      }
+      const body = (JSON.parse(await readBody(req)) ?? {}) as { text?: unknown; alias?: unknown };
+      const text = typeof body.text === 'string' ? body.text.trim() : '';
+      if (text === '' || text.length > MAX_TEXT_CHARS) { reply(400, { error: `text must be 1 to ${MAX_TEXT_CHARS} characters` }); return; }
+      const alias = typeof body.alias === 'string' ? body.alias.slice(0, MAX_ALIAS_CHARS) : '';
+      const pcm = await renderMessageSong({ passphrase, env, profile, sampleRate: SONG_RATE, text, alias, species: 0, sender: 255 });
+      const wav = encodeWav(pcm, SONG_RATE);
+      log.append('song', { text });
+      res.writeHead(200, {
+        'content-type': 'audio/wav', 'content-length': wav.length,
+        'content-disposition': `attachment; filename="birdsong-${Date.now()}.wav"`,
+      });
+      res.end(wav);
+    } catch (err) {
+      reply(400, { error: (err as Error).message });
+    }
   }
 
   /** GET or PUT the ether's topology. A successful PUT is logged and sent to every dashboard. */
@@ -332,6 +381,10 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
       await disabledRoute(req, res);
       return;
     }
+    if (p === '/api/song' || p === '/api/song/decode') {
+      await songRoute(req, res, p);
+      return;
+    }
     if (p === '/api/stopped') {
       await stoppedRoute(req, res);
       return;
@@ -340,7 +393,7 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({
         etherUrl, proxyUrl, topologyEditable: etherControlUrl !== null, flockEditable: nurseryUrl !== null,
-        noiseEditable: etherControlUrl !== null,
+        noiseEditable: etherControlUrl !== null, publicUrl,
       }));
       return;
     }
@@ -543,6 +596,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     etherControlToken: process.env.ETHER_CONTROL_TOKEN || null,
     nurseryUrl: process.env.NURSERY_URL || null,
     nurseryToken: process.env.NURSERY_TOKEN || null,
+    publicUrl: process.env.HUB_PUBLIC_URL || null,
   });
   console.log(`hub listening on ${hub.port}${process.env.HUB_LOG_FILE ? `, logging to ${process.env.HUB_LOG_FILE}` : ''}`);
 }
