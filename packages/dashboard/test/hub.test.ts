@@ -404,6 +404,70 @@ describe('hub', () => {
     }
   });
 
+  it('gives a phone one edge when it joins, relays the room as the phone\'s node, and drops the edge when it leaves', async () => {
+    // A fake ether: keeps its topology, and on /node sends back whatever arrives (and records the path).
+    let text = '0-1\n1-2';
+    const paths: string[] = [];
+    const fake = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        if (req.method === 'PUT') text = formatTopology(parseTopology((JSON.parse(Buffer.concat(chunks).toString()) as { text: string }).text));
+        const t = parseTopology(text);
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ manual: t !== null, text, links: t ? t.links : [] }));
+      });
+    });
+    const wss = new WebSocketServer({ server: fake });
+    wss.on('connection', (ws, req) => {
+      paths.push(req.url ?? '');
+      ws.on('message', (d: Buffer, isBinary) => { if (isBinary) ws.send(d, { binary: true }); });
+    });
+    await new Promise<void>((r) => fake.listen(0, r));
+    const fakePort = (fake.address() as { port: number }).port;
+    try {
+      await restart({ etherControlUrl: `http://127.0.0.1:${fakePort}`, etherControlToken: 'tok' });
+      const birds = [await open('/node'), await open('/node')];
+      birds[0]!.ws.send(JSON.stringify(hello(1)));
+      birds[1]!.ws.send(JSON.stringify(hello(0)));
+      await new Promise((r) => setTimeout(r, 100));
+      const phone = await open('/node');
+      phone.ws.send(JSON.stringify({ ...hello(200), kind: 'browser', alias: 'Ada' }));
+      await until(() => text.includes('200'));
+      expect(text).toBe('0-1\n0-200\n1-2'); // one edge, to the lowest-numbered bird; the other birds are hops away
+
+      // A new topology from the dashboard (a preset, say) does not strand the phone.
+      const put = await fetch(`http://127.0.0.1:${hub.port}/api/topology`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: '0-1' }) });
+      expect(put.status).toBe(200);
+      await until(() => text.includes('200'));
+      expect(text).toBe('0-1\n0-200');
+      await fetch(`http://127.0.0.1:${hub.port}/api/topology`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: '0-1\n1-2\n0-200' }) });
+
+      // The room bridge is the phone's own node in the ether, both ways.
+      await expect(open('/room?id=5')).rejects.toThrow();
+      const room = new WebSocket(`ws://127.0.0.1:${hub.port}/room?id=200`);
+      const back: Buffer[] = [];
+      room.on('message', (d: Buffer) => back.push(d));
+      await new Promise<void>((res, rej) => { room.on('open', () => res()); room.on('error', rej); });
+      await until(() => paths.length === 1);
+      expect(paths[0]).toMatch(/^\/node\?id=200&x=-1&y=0\.5$/);
+      await new Promise((r) => setTimeout(r, 50));
+      room.send(new Uint8Array([1, 2, 3, 4]));
+      await until(() => back.length === 1);
+      expect([...back[0]!]).toEqual([1, 2, 3, 4]);
+      room.close();
+
+      phone.ws.close();
+      await until(() => !text.includes('200'));
+      expect(text).toBe('0-1\n1-2');
+      for (const b of birds) b.ws.close();
+    } finally {
+      for (const c of wss.clients) c.terminate();
+      wss.close();
+      await new Promise<void>((r) => fake.close(() => r()));
+    }
+  });
+
   it('refuses noise sources without an ether control URL', async () => {
     await expect(open('/noise')).rejects.toThrow();
   });

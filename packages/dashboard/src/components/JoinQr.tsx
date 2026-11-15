@@ -23,15 +23,18 @@ export function JoinQr(props: { join: { pwaUrl: string; passphrase: string }; en
   const [img, setImg] = useState('');
   const [, setV] = useState(0);
   useEffect(() => subscribeNoise(() => setV((v) => v + 1)), []);
-  const phones = props.nodes.filter((n) => n.kind === 'browser' && n.online).length;
-  // A phone joined: let the birds hear it (this computer's microphone into the simulated air).
+  const online = props.nodes.filter((n) => n.kind === 'browser' && n.online).map((n) => n.node).sort((a, b) => a - b);
+  const phones = online.length;
+  /** The phone this computer stands in for in the simulated air (one microphone: the lowest-numbered phone). */
+  const phone = online[0] ?? null;
+  // A phone joined: put it in the simulated air as a node of its own (this computer's microphone and speakers).
   useEffect(() => {
-    autoHearPhones(phones > 0);
-    if (phones === 0) return;
-    const retry = (): void => autoHearPhones(true);
+    autoHearPhones(phone);
+    if (phone === null) return;
+    const retry = (): void => autoHearPhones(phone);
     document.addEventListener('pointerdown', retry, { once: true });
     return () => document.removeEventListener('pointerdown', retry);
-  }, [phones]);
+  }, [phone]);
   const hearing = noise.source === 'phones';
   const url = `${join.pwaUrl}#k=${encodeURIComponent(join.passphrase)}&env=${env}&p=${profile}`;
   const problem = join.pwaUrl ? phoneUrlProblem(join.pwaUrl) : null;
@@ -56,12 +59,12 @@ export function JoinQr(props: { join: { pwaUrl: string; passphrase: string }; en
         <div class="ear">
           <span>
             {phones > 0 ? `${phones} phone${phones > 1 ? 's' : ''} in the flock. ` : ''}
-            {hearing ? 'The birds hear phones through this computer’s microphone.' : noise.source ? `The microphone is busy with “Add noise”.` : 'The birds cannot hear phones yet.'}
+            {hearing ? `Phone #${noise.phone} is in the air: the birds linked to it hear it through this computer’s microphone, and the speakers play only those birds.` : noise.source ? `The microphone is busy with “Add noise”.` : 'The birds cannot hear phones yet.'}
           </span>
           <button
-            class={hearing ? 'on' : ''} disabled={noise.starting}
-            data-tip="Feeds this computer's microphone into the simulated air, so the birds hear phone songs. It is muted while a bird plays through the speakers, so the birds never hear themselves again."
-            onClick={() => void setHearPhones(!hearing)}
+            class={hearing ? 'on' : ''} disabled={noise.starting || (!hearing && phone === null)}
+            data-tip="This computer stands in the simulated air as the phone: its microphone is the phone's song, heard only by the birds linked to the phone, and its speakers play only what those birds sing. Drag on the graph to change the phone's links."
+            onClick={() => void setHearPhones(!hearing, phone)}
           >
             {noise.starting ? 'Starting…' : hearing ? 'Stop hearing phones' : '📱 Let the birds hear phones'}
           </button>

@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'preact/hooks';
-import { noise, setHearPhones, setNoiseGain, startNoise, stopNoise, subscribeNoise } from '../noise.ts';
+import { noise, setNoiseGain, startNoise, stopNoise, subscribeNoise } from '../noise.ts';
 import type { NoiseSource } from '../noise.ts';
 import { noiseVerdict, vsBirdsDb } from '../noiseLevel.ts';
 
 const SOURCES: { id: NoiseSource; label: string; tip: string }[] = [
-  { id: 'phones', label: 'Hear phones', tip: 'Let the birds hear the phones in the room through this computer\'s microphone. Muted while a bird plays through the speakers, so the birds never hear themselves again.' },
   { id: 'mic', label: 'Microphone', tip: 'Feed this computer\'s microphone into the air every bird hears. Talk, clap or whistle.' },
   { id: 'room', label: 'Test room noise', tip: 'Feed a synthetic busy room into the air: people talking, a fan, mains hum and clicks.' },
 ];
@@ -38,8 +37,7 @@ export function NoisePanel(props: { sources: number }) {
             key={s.id} class={noise.source === s.id ? 'on' : ''} disabled={noise.starting}
             data-tip={s.tip}
             onClick={() => {
-              if (s.id === 'phones') void setHearPhones(noise.source !== 'phones');
-              else if (noise.source === s.id) stopNoise();
+              if (noise.source === s.id) stopNoise();
               else void startNoise(s.id);
             }}
           >
@@ -69,7 +67,7 @@ export function NoisePanel(props: { sources: number }) {
       {others > 0 && <div class="hint">{others} other tab{others > 1 ? 's are' : ' is'} also adding noise.</div>}
       {noise.source === 'phones' && (
         <div class="hint">
-          {noise.gated ? 'Paused: a bird is playing through the speakers.' : 'Listening for phones.'} Phones sing when the air is quiet, so the birds hear them then.
+          Hear phones is on (QR panel): the microphone is phone #{noise.phone}'s voice in the air. {noise.gated ? 'Paused: a linked bird is playing through the speakers.' : 'Listening for the phone.'}
         </div>
       )}
       {noise.source === 'mic' && <div class="hint">Your speakers no longer play the noise back (that would feed the microphone). Headphones help too.</div>}

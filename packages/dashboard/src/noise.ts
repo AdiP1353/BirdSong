@@ -8,14 +8,15 @@
  * gain stay off (they would remove the very noise we want). While the microphone is the source, the page's own
  * air playback leaves the noise out, so the speakers do not feed the microphone.
  *
- * "Hear phones" is the microphone used as an ear for the room rather than as noise: phones sing through their
- * speakers, this computer's microphone picks them up, and the simulated birds hear them. It runs without the
+ * "Hear phones" is different: it is not noise but a node. This tab stands in the simulated air as the phone
+ * (the hub's /room socket, which is the phone's own node id in the ether). The microphone is that node's song,
+ * and the speakers play what that node hears, which is only the birds linked to the phone. So the phone talks
+ * along its edges like every bird, and the rest of the flock gets its message hop by hop. It runs without the
  * browser's echo cancellation (which can eat the near-end chirps it should pass) and relies on the echo gate
- * instead: the microphone is muted while this page's speakers play a bird, so the birds never hear themselves
- * again. The page's air playback leaves the microphone out here too, so the phone is not played back either.
+ * instead: the microphone is muted while the speakers play a bird, so the birds never hear themselves again.
  */
 import { makeRoomNoise, mulberry32 } from '@birdsong/core';
-import { echoGate, setAirNoise } from './air.ts';
+import { echoGate, playRoom, setAirNoise, setRoomPlayback } from './air.ts';
 import { createChunker, createResampler, dbToGain, BIRD_RMS } from './noiseLevel.ts';
 
 export type NoiseSource = 'mic' | 'room' | 'phones';
@@ -34,6 +35,8 @@ export interface NoiseState {
   rms: number;
   /** "Hear phones": the echo gate is shut right now (a bird is playing through this computer's speakers). */
   gated: boolean;
+  /** "Hear phones": the phone whose node this tab stands in for. */
+  phone: number | null;
   error: string | null;
 }
 
@@ -45,7 +48,7 @@ function loadGain(): number {
   return 10;
 }
 
-export const noise: NoiseState = { available: false, source: null, starting: false, gainDb: loadGain(), rms: 0, gated: false, error: null };
+export const noise: NoiseState = { available: false, source: null, starting: false, gainDb: loadGain(), rms: 0, gated: false, phone: null, error: null };
 
 const listeners = new Set<() => void>();
 const changed = (): void => { for (const fn of listeners) fn(); };
@@ -77,11 +80,12 @@ function announce(): void {
   if (ws && ws.readyState === WebSocket.OPEN && noise.source) ws.send(JSON.stringify({ source: noise.source, level: noise.gainDb }));
 }
 
-function openSocket(): Promise<WebSocket> {
+function openSocket(path = '/noise'): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const s = new WebSocket(`${proto}://${location.host}/noise`);
+    const s = new WebSocket(`${proto}://${location.host}${path}`);
     s.binaryType = 'arraybuffer';
+    s.onmessage = (m) => { if (m.data instanceof ArrayBuffer) playRoom(new Float32Array(m.data)); };
     s.onopen = () => resolve(s);
     s.onerror = () => reject(new Error('The hub refused the noise source (is the ether running?)'));
     s.onclose = () => {
@@ -176,17 +180,20 @@ function startRoom(): () => void {
 }
 
 /** Start feeding `source` into the air (stopping any other source first). */
-export async function startNoise(source: NoiseSource): Promise<void> {
+export async function startNoise(source: NoiseSource, phone: number | null = null): Promise<void> {
   stop();
+  if (source === 'phones' && phone === null) return;
   noise.error = null;
   noise.starting = true;
   changed();
   try {
-    ws = await openSocket();
+    ws = await openSocket(source === 'phones' ? `/room?id=${phone}` : '/noise');
     stopSource = source === 'room' ? startRoom() : await startMic(source === 'phones');
     noise.source = source;
+    noise.phone = source === 'phones' ? phone : null;
     chunker.reset();
     setAirNoise(source === 'room');
+    setRoomPlayback(source === 'phones');
     announce();
   } catch (err) {
     stop();
@@ -206,7 +213,9 @@ function stop(): void {
   noise.source = null;
   noise.rms = 0;
   noise.gated = false;
+  noise.phone = null;
   setAirNoise(true);
+  setRoomPlayback(false);
   const s = ws;
   ws = null;
   s?.close();
@@ -228,21 +237,27 @@ export function setNoiseGain(db: number, final = false): void {
 
 const HEAR_PHONES_KEY = 'birdsong.dash.hearPhones';
 
-/** "Hear phones" on or off, remembered: once switched off by hand, it does not start by itself again. */
-export function setHearPhones(on: boolean): Promise<void> {
+/** "Hear phones" on (as `phone`'s node) or off, remembered: once switched off by hand, it does not start by itself again. */
+export function setHearPhones(on: boolean, phone: number | null = null): Promise<void> {
   try { localStorage.setItem(HEAR_PHONES_KEY, on ? 'on' : 'off'); } catch { /* private mode */ }
-  if (on) return startNoise('phones');
+  if (on) return startNoise('phones', phone);
   if (noise.source === 'phones') stopNoise();
   return Promise.resolve();
 }
 
 /**
- * Start "Hear phones" by itself when a phone joins, unless someone switched it off on this computer, another noise
- * source is on, or the page has had no click yet (browsers start audio only after one; the first click retries).
+ * Start "Hear phones" by itself when a phone joins (and follow the phone if it changes), unless someone switched
+ * it off on this computer, another noise source is on, or the page has had no click yet (browsers start audio
+ * only after one; the first click retries). When the last phone leaves, it stops.
  */
-export function autoHearPhones(phoneOnline: boolean): void {
-  if (!phoneOnline || !noise.available || noise.source !== null || noise.starting || noise.error) return;
+export function autoHearPhones(phone: number | null): void {
+  if (noise.source === 'phones') {
+    if (phone === null) stopNoise();
+    else if (noise.phone !== phone && !noise.starting) void startNoise('phones', phone);
+    return;
+  }
+  if (phone === null || !noise.available || noise.source !== null || noise.starting || noise.error) return;
   try { if (localStorage.getItem(HEAR_PHONES_KEY) === 'off') return; } catch { /* private mode */ }
   if (!(navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation?.hasBeenActive) return;
-  void startNoise('phones');
+  void startNoise('phones', phone);
 }

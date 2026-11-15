@@ -415,6 +415,10 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
     }
     if (p === '/api/topology') {
       await topologyRoute(req, res);
+      // A preset or a typed topology knows nothing of the phones: give each connected phone an edge again.
+      if (req.method === 'PUT') {
+        for (const n of state.snapshot()) if (n.kind === 'browser' && nodeSockets.has(n.node)) await linkPhone(n.node);
+      }
       return;
     }
     if (p === '/api/log') {
@@ -443,11 +447,16 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
 
   server.on('upgrade', (req, socket, head) => {
     const path = new URL(req.url ?? '/', 'http://x').pathname;
-    if (path !== '/node' && path !== '/ui' && path !== '/noise') {
+    if (path !== '/node' && path !== '/ui' && path !== '/noise' && path !== '/room') {
       socket.destroy();
       return;
     }
-    if (path === '/noise' && !etherControlUrl) {
+    const roomId = Number(new URL(req.url ?? '/', 'http://x').searchParams.get('id'));
+    if (path === '/room' && !(Number.isInteger(roomId) && roomId >= 128 && roomId <= 255)) {
+      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+      return;
+    }
+    if ((path === '/noise' || path === '/room') && !etherControlUrl) {
       socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
       return;
     }
@@ -458,6 +467,7 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
     wss.handleUpgrade(req, socket, head, (ws) => {
       if (path === '/node') onNode(ws);
       else if (path === '/noise') onNoise(ws);
+      else if (path === '/room') onRoom(ws, roomId);
       else onUi(ws);
     });
   });
@@ -482,6 +492,7 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
         nodeSockets.set(event.node, ws);
         socketNode.set(ws, event.node);
         if (stopped && !event.config?.muted) ws.send(muteAll(true));
+        if (event.kind === 'browser') void linkPhone(event.node);
       }
       state.apply(event, now);
       log.append('event', event);
@@ -492,11 +503,70 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
       socketNode.delete(ws);
       if (id === undefined) return;
       if (nodeSockets.get(id) === ws) nodeSockets.delete(id);
+      if (state.snapshot().find((n) => n.node === id)?.kind === 'browser') void unlinkPhone(id);
       state.markOffline(id, Date.now());
       log.append('offline', { node: id });
       sendUi({ type: 'nodeOffline', node: id });
     });
     ws.on('error', () => {});
+  }
+
+  /**
+   * A phone is a node like any other: it talks only along its edges. When one says hello and the topology is
+   * manual, give it one two-way link, to the lowest-numbered bird that is online, unless it has links already
+   * (the dashboard can then redraw them, like any bird's). In distance mode the room has a spot instead (onRoom).
+   */
+  async function linkPhone(id: number): Promise<void> {
+    const topo = await etherTopology();
+    const view = topo.body as TopologyView;
+    if (topo.status !== 200 || !view.manual || view.links.some(([a, b]) => a === id || b === id)) return;
+    const bird = state.snapshot().filter((n) => n.online && n.kind !== 'browser').map((n) => n.node).sort((a, b) => a - b)[0];
+    if (bird === undefined) return;
+    await etherTopology(`${view.text}\n${id}-${bird}`);
+  }
+
+  /** The phone left: drop its links (never the last link, which would switch the ether to distance mode). */
+  async function unlinkPhone(id: number): Promise<void> {
+    const topo = await etherTopology();
+    const view = topo.body as TopologyView;
+    if (topo.status !== 200 || !view.manual) return;
+    const links = view.links.filter(([a, b]) => a !== id && b !== id);
+    if (links.length > 0 && links.length !== view.links.length) await etherTopology(formatTopology({ links }));
+  }
+
+  /** Where the room (the dashboard computer, with the phones around it) stands in distance mode: beside birds 0 and 4. */
+  const ROOM_AT = { x: -1, y: 0.5 };
+
+  /**
+   * The room bridge ("Hear phones"): a dashboard tab stands in the simulated air as the phone, node `id`. What its
+   * microphone hears goes into the ether as that node's song, and the ether sends back what that node hears (only
+   * the birds it is linked to), which the tab plays through the speakers for the phone. So the phone reaches, and
+   * is reached by, its neighbours only; the rest of the flock gets its message hop by hop.
+   */
+  function onRoom(ws: WebSocket, id: number): void {
+    const up = new WebSocket(`${etherControlUrl!.replace(/^http/, 'ws')}/node?id=${id}&x=${ROOM_AT.x}&y=${ROOM_AT.y}`);
+    noiseUpstreams.add(up);
+    log.append('room', { node: id, on: true });
+    let closed = false;
+    const close = (): void => {
+      if (closed) return;
+      closed = true;
+      noiseUpstreams.delete(up);
+      log.append('room', { node: id, on: false });
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close();
+      if (up.readyState === WebSocket.OPEN) up.close();
+      else if (up.readyState === WebSocket.CONNECTING) up.terminate();
+    };
+    ws.on('message', (data, isBinary) => {
+      if (isBinary && up.readyState === WebSocket.OPEN) up.send(data, { binary: true });
+    });
+    up.on('message', (data, isBinary) => {
+      if (isBinary && ws.readyState === WebSocket.OPEN) ws.send(data, { binary: true });
+    });
+    ws.on('close', close);
+    ws.on('error', () => {});
+    up.on('close', close);
+    up.on('error', () => {});
   }
 
   /**

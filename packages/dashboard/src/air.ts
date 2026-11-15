@@ -73,6 +73,39 @@ export function setAmbient(env: EnvName | null): void {
   changed();
 }
 
+/** "Hear phones" is on: the speakers play what the phone's node hears (playRoom), not the whole air. */
+let room = false;
+let roomNext = 0;
+
+/**
+ * While the room bridge is on, the speakers stand in for the phone's neighbours: they play only what the phone's
+ * node hears in the simulated air. The whole air still feeds the spectrograms, silently.
+ */
+export function setRoomPlayback(on: boolean): void {
+  if (on === room) return;
+  room = on;
+  roomNext = 0;
+  if (!mix || !out) return;
+  if (on) mix.disconnect(out);
+  else mix.connect(out);
+}
+
+/** One block of what the phone's node hears, from the ether. Plays it and tells the echo gate. */
+export function playRoom(samples: Float32Array): void {
+  if (!room || !ctx || !out || ctx.state !== 'running' || samples.length === 0) return;
+  const now = ctx.currentTime;
+  if (roomNext < now + 0.05) roomNext = now + 0.05;
+  if (roomNext > now + MAX_LEAD_S) return;
+  const buf = ctx.createBuffer(1, samples.length, RATE);
+  buf.copyToChannel(samples as Float32Array<ArrayBuffer>, 0);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(out);
+  src.start(roomNext);
+  roomNext += buf.duration;
+  echoGate.played(rmsOf(samples), performance.now() + (roomNext - now) * 1000);
+}
+
 let sock: WebSocket | null = null;
 /** Whether the playback includes the ether's noise sources (off while this page's microphone feeds them). */
 let withNoise = true;
@@ -115,7 +148,7 @@ function connect(url: string): void {
     src.connect(bus);
     src.start(next);
     next += buf.duration;
-    echoGate.played(rmsOf(samples), performance.now() + (next - now) * 1000);
+    if (!room) echoGate.played(rmsOf(samples), performance.now() + (next - now) * 1000);
   };
   ws.onclose = () => {
     if (sock === ws) sock = null;
@@ -147,7 +180,7 @@ export function startAir(): void {
     bus.connect(chirps);
     bus.connect(mix);
     mix.connect(analyser);
-    mix.connect(out);
+    if (!room) mix.connect(out);
     out.gain.value = VOLUME;
     out.connect(ctx.destination);
     air.analyser = analyser;

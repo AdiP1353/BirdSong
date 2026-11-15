@@ -18,8 +18,6 @@ const SHOT_MS = 700;
 
 interface Drag { from: number; x: number; y: number; moved: boolean }
 
-/** Phones sit in the graph's corners, clear of every preset's birds; a fifth phone onwards is placed by force. */
-const PHONE_SPOTS: [number, number][] = [[W - 90, 75], [90, 75], [W - 90, H - 100], [90, H - 100]];
 
 interface SimNode extends SimulationNodeDatum {
   id: number;
@@ -97,22 +95,16 @@ export function FlockGraph(props: { nodes: NodeSnapshot[]; events: TelemetryEven
     }
   }
   const layoutLinks = wired.size > 0 ? wired : pulses;
-  const phoneKey = nodes.filter((n) => n.kind === 'browser').map((n) => n.node).join(',');
-  const nextLinkKey = `${wired.size > 0 ? 'w' : 'p'}:${[...layoutLinks.keys()].sort().join('|')}:${[...simNodes.current.keys()].join(',')}:${phoneKey}`;
+  const nextLinkKey = `${wired.size > 0 ? 'w' : 'p'}:${[...layoutLinks.keys()].sort().join('|')}:${[...simNodes.current.keys()].join(',')}`;
   if (sim.current && nextLinkKey !== linkKey.current) {
     linkKey.current = nextLinkKey;
     // A preset topology pins every node to its hand-drawn spot. After birds are added or removed, the closest
     // preset still pins the birds it has, and an extra bird starts beside the birds it is linked to.
     // Distance mode, and manual topologies unlike any preset, are laid out by force.
     const layout = closestPreset(store.topology)?.layout ?? null;
-    const phoneIds = nodes.filter((n) => n.kind === 'browser').map((n) => n.node).sort((a, b) => a - b);
+    const byKind = new Map(nodes.map((n) => [n.node, n.kind]));
+    const phoneIds = nodes.filter((n) => n.kind === 'browser').map((n) => n.node);
     for (const n of simNodes.current.values()) {
-      const spot = PHONE_SPOTS[phoneIds.indexOf(n.id)];
-      if (spot) {
-        n.fx = spot[0];
-        n.fy = spot[1];
-        continue;
-      }
       const at = layout?.[n.id];
       if (at) {
         n.fx = at[0];
@@ -123,6 +115,18 @@ export function FlockGraph(props: { nodes: NodeSnapshot[]; events: TelemetryEven
       n.fx = null;
       n.fy = null;
       if (!layout) continue;
+      // A phone stands just outside the flock, beside the first bird it is linked to (phones on one bird fan out).
+      if (byKind.get(n.id) === 'browser') {
+        const mate = [...wired.values()].filter((l) => l.a === n.id || l.b === n.id).map((l) => (l.a === n.id ? l.b : l.a))
+          .filter((id) => layout[id]).sort((x, y) => x - y)[0];
+        if (mate !== undefined) {
+          const [bx, by] = layout[mate]!;
+          const nth = phoneIds.filter((id) => id < n.id && wired.has(`${Math.min(id, mate)}-${Math.max(id, mate)}`)).length;
+          n.fx = bx + (bx < W / 2 ? -1 : 1) * (70 + nth * 85);
+          n.fy = by + (by <= H / 2 ? 95 : -95);
+          continue;
+        }
+      }
       const near = [...wired.values()]
         .filter((l) => l.a === n.id || l.b === n.id)
         .map((l) => simNodes.current.get(l.a === n.id ? l.b : l.a))
@@ -155,20 +159,11 @@ export function FlockGraph(props: { nodes: NodeSnapshot[]; events: TelemetryEven
   const everyoneMuted = store.stopped || (flock.length > 1 && flock.every((n) => n.config.muted));
   const byId = new Map(nodes.map((n) => [n.node, n]));
   const alive = (id: number): boolean => { const n = byId.get(id); return !!n && n.online && !n.config.muted; };
-  const phones = nodes.filter((n) => n.kind === 'browser').map((n) => n.node);
-  /**
-   * Who hears a bird: its links in a manual topology, else the birds that heard it lately. Phones are in the room:
-   * they hear every bird through the speakers, and every bird hears them through the computer's microphone.
-   */
+  /** Who hears a bird (or a phone, a node like any other): its links in a manual topology, else the nodes that heard it lately. */
   const hearers = (id: number): number[] => {
     const out = new Set<number>();
-    if (byId.get(id)?.kind === 'browser') {
-      for (const n of nodes) if (n.node !== id) out.add(n.node);
-    } else {
-      if (store.topology?.manual) { for (const [a, b] of store.topology.links) if (a === id) out.add(b); }
-      else for (const p of pulses.values()) { if (p.a === id) out.add(p.b); else if (p.b === id) out.add(p.a); }
-      for (const p of phones) out.add(p);
-    }
+    if (store.topology?.manual) { for (const [a, b] of store.topology.links) if (a === id) out.add(b); }
+    else for (const p of pulses.values()) { if (p.a === id) out.add(p.b); else if (p.b === id) out.add(p.a); }
     return [...out].filter(alive);
   };
 
@@ -190,7 +185,6 @@ export function FlockGraph(props: { nodes: NodeSnapshot[]; events: TelemetryEven
     let best: number | null = null;
     let bestD = R + 18;
     for (const n of nodes) {
-      if (n.kind === 'browser') continue;
       const p = pos(n.node);
       const d = Math.hypot(p.x - x, p.y - y);
       if (d < bestD) { bestD = d; best = n.node; }
@@ -334,7 +328,7 @@ export function FlockGraph(props: { nodes: NodeSnapshot[]; events: TelemetryEven
         return (
           <g
             key={n.node} transform={`translate(${x},${y})`} opacity={off ? 0.55 : 1}
-            style={{ cursor: n.kind === 'browser' || store.disabled ? 'default' : 'crosshair' }}
+            style={{ cursor: store.disabled ? 'default' : 'crosshair' }}
           >
             {dragTarget === n.node && dragging && dragging.from !== n.node && (
               <circle r={R + 18} fill="none" stroke="#ffd54f" stroke-width="4" />
