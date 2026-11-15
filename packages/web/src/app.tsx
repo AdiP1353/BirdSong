@@ -3,6 +3,7 @@ import { ENVS } from '@birdsong/core';
 import type { NodeConfig, NodeState } from '@birdsong/core';
 import { Flock } from './components/Flock.tsx';
 import { Join } from './components/Join.tsx';
+import { hubBase, hubConfig, hubSocketBase } from './hub.ts';
 import { parseJoin } from './join.ts';
 import { createLocalRuntime, createRemoteRuntime, nodeBaseFromLocation } from './runtime.ts';
 import type { Runtime } from './runtime.ts';
@@ -84,6 +85,9 @@ export function App() {
       () => {
         setRuntime(rt);
         setBusy(false);
+        // Served by a dashboard hub: show up on the dashboard as a bird of our own, like the laptop birds.
+        const base = hubBase(location.href);
+        void hubConfig(base).then((c) => { if (c) rt.observe?.(hubSocketBase(base)); });
       },
       (e) => {
         setError(micMessage(e));

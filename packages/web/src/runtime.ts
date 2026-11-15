@@ -1,5 +1,5 @@
 import {
-  DEFAULT_NODE_CONFIG, MAX_ALIAS_CHARS, createBirdNode, createModem, createRealClock,
+  DEFAULT_NODE_CONFIG, MAX_ALIAS_CHARS, connectObservatory, createBirdNode, createModem, createRealClock,
 } from '@birdsong/core';
 import type { EnvName, NodeConfig, NodeState, ProfileName, TelemetryEvent } from '@birdsong/core';
 import { safeGet, safeSet } from './storage.ts';
@@ -15,6 +15,8 @@ export interface Runtime {
   audio?: { context: AudioContext; analyser: AnalyserNode };
   /** Local nodes only: the node's microphone, which dictation borrows (and pauses chirp listening for). */
   mic?: { stream(): MediaStream | null; setListening(on: boolean): void };
+  /** Local nodes only: report to the dashboard hub at `wsBase` (its /node socket), as laptop birds do. */
+  observe?(wsBase: string): void;
 }
 
 export interface LocalOptions { passphrase: string; env: EnvName; profile: ProfileName; alias: string }
@@ -29,11 +31,13 @@ function phoneId(): number {
 
 export function createLocalRuntime(o: LocalOptions): Runtime & { port: ReturnType<typeof createWebAudioPort> } {
   const port = createWebAudioPort();
+  const alias = o.alias.slice(0, MAX_ALIAS_CHARS);
+  let observatory: ReturnType<typeof connectObservatory> | null = null;
   const node = createBirdNode({
     id: phoneId(),
     kind: 'browser',
     passphrase: o.passphrase,
-    alias: o.alias.slice(0, MAX_ALIAS_CHARS),
+    alias,
     config: { ...DEFAULT_NODE_CONFIG, env: o.env, profile: o.profile },
     port,
     clock: createRealClock(),
@@ -57,6 +61,9 @@ export function createLocalRuntime(o: LocalOptions): Runtime & { port: ReturnTyp
       return node.state();
     },
     onEvent: (cb) => node.onEvent(cb),
+    observe(wsBase) {
+      observatory ??= connectObservatory(wsBase, node, { alias });
+    },
   };
 }
 

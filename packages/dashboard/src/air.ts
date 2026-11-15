@@ -5,6 +5,7 @@
  */
 import { AMBIENT_LEVEL, renderAmbient } from '@birdsong/core';
 import type { EnvName } from '@birdsong/core';
+import { createEchoGate, rmsOf } from './noiseLevel.ts';
 
 const RATE = 48000;
 const MAX_LEAD_S = 0.5;
@@ -21,6 +22,9 @@ export interface Air {
   /** Environment whose ambience is playing, or null. */
   ambient: EnvName | null;
 }
+
+/** Shut while this page's speakers play a bird; "Hear phones" passes the microphone only while it is open. */
+export const echoGate = createEchoGate();
 
 export const air: Air = { available: false, blocked: true, connected: false, analyser: null, chirps: null, ambient: null };
 
@@ -111,6 +115,7 @@ function connect(url: string): void {
     src.connect(bus);
     src.start(next);
     next += buf.duration;
+    echoGate.played(rmsOf(samples), performance.now() + (next - now) * 1000);
   };
   ws.onclose = () => {
     if (sock === ws) sock = null;

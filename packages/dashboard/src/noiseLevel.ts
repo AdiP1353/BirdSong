@@ -94,3 +94,37 @@ export function createResampler(fromRate: number, toRate: number): { push(x: Flo
     },
   };
 }
+
+/** A block of the air this page plays counts as a bird singing above this RMS (the ether's own hiss is 0.002). */
+export const ECHO_BUSY_RMS = 0.01;
+/** The gate stays shut this long after the last bird sound has played: speaker-to-microphone delay and room echo. */
+export const ECHO_HANGOVER_MS = 500;
+
+export interface EchoGate {
+  /** A block of air that plays until `endMs` (performance.now() time) with this RMS. */
+  played(rms: number, endMs: number): void;
+  /** Whether the microphone may pass sound into the air at `nowMs`. */
+  open(nowMs: number): boolean;
+}
+
+/**
+ * "Hear phones" sends this computer's microphone into the simulated air so the birds hear phones in the room. The
+ * same speakers play the birds, so the microphone would send every bird's song back into the air a moment later,
+ * as an echo. The gate closes while the page plays a bird (and for ECHO_HANGOVER_MS after), and opens when the air
+ * is quiet: that is when a phone sings, because a phone waits for silence like any bird (carrier sense).
+ */
+export function createEchoGate(): EchoGate {
+  let busyUntil = -Infinity;
+  return {
+    played(rms, endMs) {
+      if (rms > ECHO_BUSY_RMS) busyUntil = Math.max(busyUntil, endMs + ECHO_HANGOVER_MS);
+    },
+    open: (nowMs) => nowMs >= busyUntil,
+  };
+}
+
+export function rmsOf(x: Float32Array): number {
+  let sum = 0;
+  for (let i = 0; i < x.length; i++) sum += x[i]! * x[i]!;
+  return x.length > 0 ? Math.sqrt(sum / x.length) : 0;
+}

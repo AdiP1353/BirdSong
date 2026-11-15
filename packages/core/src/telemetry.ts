@@ -5,7 +5,8 @@ import type { NodeConfig, NodeKind } from './types.ts';
  * visualisation only. Message data never travels this way.
  */
 export type TelemetryEvent =
-  | { type: 'hello'; node: number; species: number; kind: NodeKind; config: NodeConfig; t: number }
+  /** alias: the person's name, sent by phones so the dashboard can label them. */
+  | { type: 'hello'; node: number; species: number; kind: NodeKind; config: NodeConfig; t: number; alias?: string }
   | { type: 'config'; node: number; config: NodeConfig; t: number }
   | { type: 'heard'; node: number; from: number; msgId: number; seed: number; hop: number; k: number; sync: number; t: number }
   | { type: 'bad'; node: number; reason: 'crc' | 'netTag' | 'neighbor' | 'auth'; t: number }
@@ -29,6 +30,8 @@ export interface NodeSnapshot {
   config: NodeConfig;
   online: boolean;
   lastSeenAt: number;
+  /** The name a phone gave when it joined (its hello), if any. */
+  alias?: string;
 }
 
 /** The simulated air's current topology, as the ether reports it (GET /topology). */

@@ -68,4 +68,14 @@ describe('connectObservatory', () => {
     await until(() => msgs.length >= 1, 10000);
     expect(msgs[0]).toMatchObject({ type: 'hello', node: 3 });
   }, 20000);
+
+  it('sends the alias in hello when given one (phones)', async () => {
+    wss = await listen(0);
+    const port = (wss.address() as { port: number }).port;
+    const msgs: any[] = [];
+    wss.on('connection', (ws) => ws.on('message', (d) => msgs.push(JSON.parse(d.toString()))));
+    obs = connectObservatory(`ws://127.0.0.1:${port}`, makeFakeNode(201), { alias: 'Ada' });
+    await until(() => msgs.length >= 1);
+    expect(msgs[0]).toMatchObject({ type: 'hello', node: 201, alias: 'Ada' });
+  });
 });

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Runtime } from '../runtime.ts';
-import { MAX_DICTATION_MS, hubBase, speechAvailable, transcribe } from '../speech.ts';
+import { hubBase } from '../hub.ts';
+import { MAX_DICTATION_MS, speechAvailable, transcribe } from '../speech.ts';
 
 type Mic = NonNullable<Runtime['mic']>;
 

@@ -62,8 +62,8 @@ Check: all nodes show as online on the dashboard.
 
 ### Hands-on moments for the simulated mesh (`bash scripts/demo.sh`)
 
-- **Their phone is a bird.** The judge scans "Scan to become a bird" (same Wi-Fi; accept the certificate warning once: Advanced, Proceed) and taps "Turn on the microphone". Send from any bird: the phone hears the laptop's speakers and the message lands in its Inbox.
-- **Their own words.** On the phone, "🎤 Speak your message", say it, "■ Done speaking" (the phone stops listening for birds while they speak), check the text, Send. The phone sings it; turn on Add noise → Microphone on the computer so the birds in the simulated air hear it.
+- **Their phone is a bird.** The judge scans "Scan to become a bird" (same Wi-Fi; accept the certificate warning once: Advanced, Proceed) and taps "Turn on the microphone". It appears on the graph, dashed, in a corner, with their name. Click the dashboard once beforehand, so it can turn on "Hear phones" by itself (allow the microphone when the browser asks). Send from any bird: the phone hears the laptop's speakers and the message lands in its Inbox.
+- **Their own words.** On the phone, "🎤 Speak your message", say it, "■ Done speaking" (the phone stops listening for birds while they speak), check the text, Send. The phone sings it, and the birds hear it through the computer's microphone ("Hear phones" turns on by itself when a phone joins; the QR panel shows it). Keep the phone close to the laptop.
 - **Whistle test.** Add noise → Microphone on the computer; the judge whistles or claps at it and sees it on the air spectrogram while the message still arrives.
 - **Cut the internet.** Press it while a message is in flight; the bird windows keep filling.
 - **Shoot a bird / draw the network.** Let the judge tap a bird on the graph, or drag a line between two birds, then send again.

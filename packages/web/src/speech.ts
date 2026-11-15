@@ -1,3 +1,5 @@
+import { hubConfig } from './hub.ts';
+
 /**
  * Speech to text for the message box. The phone records with the node's own microphone and posts the audio to the
  * hub that served the page (POST <hub>/api/transcribe); the hub holds the ElevenLabs key and returns the words.
@@ -7,25 +9,9 @@
 /** Longest dictation. The node is deaf to chirps while it records, so a forgotten recording must end by itself. */
 export const MAX_DICTATION_MS = 30_000;
 
-/** Base URL of the hub behind this page, ending in '/'. The phone app lives at <hub>/app/, so the hub is one level up. */
-export function hubBase(href: string): string {
-  const dir = new URL('.', href);
-  dir.search = '';
-  dir.hash = '';
-  if (dir.pathname.endsWith('/app/')) dir.pathname = dir.pathname.slice(0, -'app/'.length);
-  return dir.href;
-}
-
 /** Whether the hub at `base` can turn speech into text (it has an ElevenLabs key). Any failure means no. */
 export async function speechAvailable(base: string, fetchFn: typeof fetch = fetch): Promise<boolean> {
-  try {
-    const r = await fetchFn(new URL('config.json', base).href);
-    if (!r.ok) return false;
-    const c = (await r.json()) as { speechToText?: unknown };
-    return c.speechToText === true;
-  } catch {
-    return false;
-  }
+  return (await hubConfig(base, fetchFn))?.speechToText === true;
 }
 
 /** Sends recorded audio to the hub and returns the words, or throws with a message for the person. */

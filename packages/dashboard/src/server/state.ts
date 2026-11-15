@@ -26,6 +26,7 @@ export function createHubState(): HubState {
     ring.push(event);
     if (ring.length > RING) ring = ring.slice(ring.length - RING);
     if (event.type === 'decoded' && event.hops === 0) aliases.set(event.node, event.alias);
+    if (event.type === 'hello' && event.alias) aliases.set(event.node, event.alias);
   }
 
   return {
@@ -35,6 +36,7 @@ export function createHubState(): HubState {
         nodes.set(event.node, {
           node: event.node, species: event.species, kind: event.kind,
           config: event.config, online: true, lastSeenAt: now,
+          ...(event.alias ? { alias: event.alias } : {}),
         });
       } else {
         if (event.type === 'heard' && !nodes.has(event.from) && !removed.has(event.from)) {
@@ -83,7 +85,7 @@ export function createHubState(): HubState {
       return ring.slice();
     },
     aliasOf(node) {
-      return aliases.get(node) ?? null;
+      return aliases.get(node) || nodes.get(node)?.alias || null;
     },
   };
 }

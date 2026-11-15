@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BIRD_RMS, createChunker, dbToGain, noiseVerdict, vsBirdsDb } from '../src/noiseLevel.ts';
+import { BIRD_RMS, ECHO_HANGOVER_MS, createChunker, createEchoGate, dbToGain, noiseVerdict, rmsOf, vsBirdsDb } from '../src/noiseLevel.ts';
 
 describe('noise level helpers', () => {
   it('converts dB to gain and measures noise against a bird', () => {
@@ -66,5 +66,21 @@ describe('resampler', () => {
     const { createResampler } = await import('../src/noiseLevel.ts');
     const r = createResampler(48_000, 48_000);
     expect(Array.from(r.push(new Float32Array([1, 2, 3])))).toEqual([1, 2, 3]);
+  });
+
+  it('shuts the echo gate while a bird plays and for the hangover after, but not for the hiss', () => {
+    const g = createEchoGate();
+    expect(g.open(0)).toBe(true);
+    g.played(0.002, 1000); // the ether's own hiss
+    expect(g.open(500)).toBe(true);
+    g.played(BIRD_RMS, 1000); // a bird, playing until t = 1000 ms
+    expect(g.open(500)).toBe(false);
+    expect(g.open(1000 + ECHO_HANGOVER_MS - 1)).toBe(false);
+    expect(g.open(1000 + ECHO_HANGOVER_MS)).toBe(true);
+    g.played(BIRD_RMS, 900); // an earlier end never reopens it sooner
+    g.played(BIRD_RMS, 2000);
+    expect(g.open(2400)).toBe(false);
+    expect(rmsOf(new Float32Array([3, -3, 3, -3]))).toBe(3);
+    expect(rmsOf(new Float32Array(0))).toBe(0);
   });
 });

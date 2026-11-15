@@ -123,7 +123,7 @@ export function App() {
           )}
         </section>
         <aside class="right" inert={off} aria-disabled={off}>
-          <JoinQr join={store.join} env={env} profile={profile} />
+          <JoinQr join={store.join} env={env} profile={profile} nodes={nodes} />
           <Controls nodes={nodes} events={events} focus={focus} env={env} profile={profile} camouflage={camouflage} />
           <NoisePanel sources={store.noiseSources} />
           <SpyPanel events={events} focus={focus} message={feed(events).find((m) => m.msgId === focus)} />

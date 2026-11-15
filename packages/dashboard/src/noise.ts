@@ -7,12 +7,18 @@
  * page plays are not picked up and sent back into the air as a delayed echo; noise suppression and automatic
  * gain stay off (they would remove the very noise we want). While the microphone is the source, the page's own
  * air playback leaves the noise out, so the speakers do not feed the microphone.
+ *
+ * "Hear phones" is the microphone used as an ear for the room rather than as noise: phones sing through their
+ * speakers, this computer's microphone picks them up, and the simulated birds hear them. It runs without the
+ * browser's echo cancellation (which can eat the near-end chirps it should pass) and relies on the echo gate
+ * instead: the microphone is muted while this page's speakers play a bird, so the birds never hear themselves
+ * again. The page's air playback leaves the microphone out here too, so the phone is not played back either.
  */
 import { makeRoomNoise, mulberry32 } from '@birdsong/core';
-import { setAirNoise } from './air.ts';
+import { echoGate, setAirNoise } from './air.ts';
 import { createChunker, createResampler, dbToGain, BIRD_RMS } from './noiseLevel.ts';
 
-export type NoiseSource = 'mic' | 'room';
+export type NoiseSource = 'mic' | 'room' | 'phones';
 
 const RATE = 48_000;
 const BLOCK = 960; // 20 ms, the ether's block
@@ -26,6 +32,8 @@ export interface NoiseState {
   gainDb: number;
   /** RMS of what is being sent, smoothed. */
   rms: number;
+  /** "Hear phones": the echo gate is shut right now (a bird is playing through this computer's speakers). */
+  gated: boolean;
   error: string | null;
 }
 
@@ -37,7 +45,7 @@ function loadGain(): number {
   return 10;
 }
 
-export const noise: NoiseState = { available: false, source: null, starting: false, gainDb: loadGain(), rms: 0, error: null };
+export const noise: NoiseState = { available: false, source: null, starting: false, gainDb: loadGain(), rms: 0, gated: false, error: null };
 
 const listeners = new Set<() => void>();
 const changed = (): void => { for (const fn of listeners) fn(); };
@@ -100,9 +108,9 @@ class Capture extends AudioWorkletProcessor {
 registerProcessor('birdsong-noise-capture', Capture);
 `;
 
-async function startMic(): Promise<() => void> {
+async function startMic(gated: boolean): Promise<() => void> {
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+    audio: { echoCancellation: !gated, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
   });
   // Use the device's own rate (Firefox will not connect a microphone to a context at another rate) and
   // resample to the ether's 48 kHz here.
@@ -119,7 +127,12 @@ async function startMic(): Promise<() => void> {
   sink.gain.value = 0; // keeps the worklet running without playing the microphone
   const rs = createResampler(ctx.sampleRate, RATE);
   node.port.onmessage = (e: MessageEvent<Float32Array>) => {
-    chunker.push(rs.push(e.data));
+    const x = rs.push(e.data);
+    if (gated) {
+      noise.gated = !echoGate.open(performance.now());
+      if (noise.gated) x.fill(0);
+    }
+    chunker.push(x);
     paintSoon();
   };
   src.connect(node);
@@ -170,10 +183,10 @@ export async function startNoise(source: NoiseSource): Promise<void> {
   changed();
   try {
     ws = await openSocket();
-    stopSource = source === 'mic' ? await startMic() : startRoom();
+    stopSource = source === 'room' ? startRoom() : await startMic(source === 'phones');
     noise.source = source;
     chunker.reset();
-    setAirNoise(source !== 'mic');
+    setAirNoise(source === 'room');
     announce();
   } catch (err) {
     stop();
@@ -192,6 +205,7 @@ function stop(): void {
   stopSource = null;
   noise.source = null;
   noise.rms = 0;
+  noise.gated = false;
   setAirNoise(true);
   const s = ws;
   ws = null;
@@ -210,4 +224,25 @@ export function setNoiseGain(db: number, final = false): void {
   try { localStorage.setItem('birdsong.dash.noiseGain', String(noise.gainDb)); } catch { /* private mode */ }
   if (final) announce();
   changed();
+}
+
+const HEAR_PHONES_KEY = 'birdsong.dash.hearPhones';
+
+/** "Hear phones" on or off, remembered: once switched off by hand, it does not start by itself again. */
+export function setHearPhones(on: boolean): Promise<void> {
+  try { localStorage.setItem(HEAR_PHONES_KEY, on ? 'on' : 'off'); } catch { /* private mode */ }
+  if (on) return startNoise('phones');
+  if (noise.source === 'phones') stopNoise();
+  return Promise.resolve();
+}
+
+/**
+ * Start "Hear phones" by itself when a phone joins, unless someone switched it off on this computer, another noise
+ * source is on, or the page has had no click yet (browsers start audio only after one; the first click retries).
+ */
+export function autoHearPhones(phoneOnline: boolean): void {
+  if (!phoneOnline || !noise.available || noise.source !== null || noise.starting || noise.error) return;
+  try { if (localStorage.getItem(HEAR_PHONES_KEY) === 'off') return; } catch { /* private mode */ }
+  if (!(navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation?.hasBeenActive) return;
+  void startNoise('phones');
 }

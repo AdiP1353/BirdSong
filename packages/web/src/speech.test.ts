@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { appendDictation, hubBase, speechAvailable, transcribe } from './speech.ts';
+import { hubBase, hubSocketBase } from './hub.ts';
+import { appendDictation, speechAvailable, transcribe } from './speech.ts';
 
 const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status });
 
@@ -9,6 +10,8 @@ describe('speech to text', () => {
     expect(hubBase('https://10.0.0.5:3443/app/index.html')).toBe('https://10.0.0.5:3443/');
     expect(hubBase('http://localhost:5173/')).toBe('http://localhost:5173/');
     expect(hubBase('https://x.github.io/birdsong/')).toBe('https://x.github.io/birdsong/');
+    expect(hubSocketBase('https://10.0.0.5:3443/')).toBe('wss://10.0.0.5:3443');
+    expect(hubSocketBase('http://localhost:3200/')).toBe('ws://localhost:3200');
   });
 
   it('is available only when the hub says so', async () => {
@@ -18,6 +21,7 @@ describe('speech to text', () => {
     expect(await speechAvailable('https://h/', (async () => json({ speechToText: false })) as unknown as typeof fetch)).toBe(false);
     expect(await speechAvailable('https://h/', (async () => new Response('nope', { status: 404 })) as unknown as typeof fetch)).toBe(false);
     expect(await speechAvailable('https://h/', (async () => { throw new TypeError('offline'); }) as unknown as typeof fetch)).toBe(false);
+    expect(await speechAvailable('https://h/', (async () => new Response('<html>', { status: 200 })) as unknown as typeof fetch)).toBe(false);
   });
 
   it('posts the audio and returns the words', async () => {

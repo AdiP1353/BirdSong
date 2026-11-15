@@ -18,6 +18,9 @@ const SHOT_MS = 700;
 
 interface Drag { from: number; x: number; y: number; moved: boolean }
 
+/** Phones sit in the graph's corners, clear of every preset's birds; a fifth phone onwards is placed by force. */
+const PHONE_SPOTS: [number, number][] = [[W - 90, 75], [90, 75], [W - 90, H - 100], [90, H - 100]];
+
 interface SimNode extends SimulationNodeDatum {
   id: number;
   /** Already placed beside its linked birds once. */
@@ -94,14 +97,22 @@ export function FlockGraph(props: { nodes: NodeSnapshot[]; events: TelemetryEven
     }
   }
   const layoutLinks = wired.size > 0 ? wired : pulses;
-  const nextLinkKey = `${wired.size > 0 ? 'w' : 'p'}:${[...layoutLinks.keys()].sort().join('|')}:${[...simNodes.current.keys()].join(',')}`;
+  const phoneKey = nodes.filter((n) => n.kind === 'browser').map((n) => n.node).join(',');
+  const nextLinkKey = `${wired.size > 0 ? 'w' : 'p'}:${[...layoutLinks.keys()].sort().join('|')}:${[...simNodes.current.keys()].join(',')}:${phoneKey}`;
   if (sim.current && nextLinkKey !== linkKey.current) {
     linkKey.current = nextLinkKey;
     // A preset topology pins every node to its hand-drawn spot. After birds are added or removed, the closest
     // preset still pins the birds it has, and an extra bird starts beside the birds it is linked to.
     // Distance mode, and manual topologies unlike any preset, are laid out by force.
     const layout = closestPreset(store.topology)?.layout ?? null;
+    const phoneIds = nodes.filter((n) => n.kind === 'browser').map((n) => n.node).sort((a, b) => a - b);
     for (const n of simNodes.current.values()) {
+      const spot = PHONE_SPOTS[phoneIds.indexOf(n.id)];
+      if (spot) {
+        n.fx = spot[0];
+        n.fy = spot[1];
+        continue;
+      }
       const at = layout?.[n.id];
       if (at) {
         n.fx = at[0];
@@ -144,11 +155,20 @@ export function FlockGraph(props: { nodes: NodeSnapshot[]; events: TelemetryEven
   const everyoneMuted = store.stopped || (flock.length > 1 && flock.every((n) => n.config.muted));
   const byId = new Map(nodes.map((n) => [n.node, n]));
   const alive = (id: number): boolean => { const n = byId.get(id); return !!n && n.online && !n.config.muted; };
-  /** Who hears a bird: its links in a manual topology, else the birds that heard it lately. */
+  const phones = nodes.filter((n) => n.kind === 'browser').map((n) => n.node);
+  /**
+   * Who hears a bird: its links in a manual topology, else the birds that heard it lately. Phones are in the room:
+   * they hear every bird through the speakers, and every bird hears them through the computer's microphone.
+   */
   const hearers = (id: number): number[] => {
     const out = new Set<number>();
-    if (store.topology?.manual) { for (const [a, b] of store.topology.links) if (a === id) out.add(b); }
-    else for (const p of pulses.values()) { if (p.a === id) out.add(p.b); else if (p.b === id) out.add(p.a); }
+    if (byId.get(id)?.kind === 'browser') {
+      for (const n of nodes) if (n.node !== id) out.add(n.node);
+    } else {
+      if (store.topology?.manual) { for (const [a, b] of store.topology.links) if (a === id) out.add(b); }
+      else for (const p of pulses.values()) { if (p.a === id) out.add(p.b); else if (p.b === id) out.add(p.a); }
+      for (const p of phones) out.add(p);
+    }
     return [...out].filter(alive);
   };
 

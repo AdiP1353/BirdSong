@@ -25,6 +25,17 @@ describe('hub state', () => {
     expect(n.config).toEqual(DEFAULT_NODE_CONFIG);
   });
 
+  it('a phone that says hello is its own node, with its name, and keeps it after it sends', () => {
+    const s = createHubState();
+    s.apply(hello(0), 1);
+    s.apply({ type: 'hello', node: 200, species: 2, kind: 'browser', config: { ...DEFAULT_NODE_CONFIG }, t: 2, alias: 'Ada' }, 2);
+    s.apply({ type: 'heard', node: 0, from: 200, msgId: 1, seed: 1, hop: 0, k: 3, sync: 0.5, t: 3 }, 3);
+    expect(s.snapshot()).toMatchObject([{ node: 0 }, { node: 200, kind: 'browser', species: 2, alias: 'Ada', online: true }]);
+    expect(s.aliasOf(200)).toBe('Ada');
+    s.apply({ type: 'decoded', node: 200, msgId: 1, hops: 0, text: 'hi', alias: '', t: 4 }, 4);
+    expect(s.aliasOf(200)).toBe('Ada');
+  });
+
   it('marks offline', () => {
     const s = createHubState();
     s.apply(hello(0), 1);
