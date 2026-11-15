@@ -17,11 +17,29 @@ export interface FlockProps {
   alias: string;
   refresh(): void;
   configure(patch: Partial<NodeConfig>): void;
+  /** Small-window view (the dashboard's bird grid): header, send box, inbox and in-flight only. */
+  compact?: boolean;
 }
 
-export function Flock({ runtime, state, passphrase, alias, refresh, configure }: FlockProps) {
+export function Flock({ runtime, state, passphrase, alias, refresh, configure, compact }: FlockProps) {
   const cfg = state.config;
   const local = runtime.kind === 'local' && runtime.audio;
+  if (compact) {
+    return (
+      <>
+        <header class="panel head">
+          <div>
+            <strong style={{ color: SPECIES_COLORS[state.species % 4] }}>bird #{state.id}</strong>
+            {cfg.muted && <span class="dim"> · muted</span>}
+          </div>
+          <button onClick={() => configure({ muted: !cfg.muted })}>{cfg.muted ? 'Unmute' : 'Mute'}</button>
+        </header>
+        <Compose runtime={runtime} onSent={refresh} compact />
+        <Inbox state={state} />
+        <InFlight state={state} />
+      </>
+    );
+  }
   return (
     <>
       <header class="panel head">

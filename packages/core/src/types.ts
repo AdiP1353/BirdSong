@@ -79,6 +79,11 @@ export interface NodeConfig {
   neighbors: number[] | null;
   /** Whether the runtime should play the ambient bed. The engine only stores it. */
   camouflage: boolean;
+  /**
+   * Stop relaying a message once it has been received more than this many times
+   * (0 = never stop). One reception = one decode, or one more full copy heard.
+   */
+  relayLimit: number;
 }
 
 export interface MessageStatus {
@@ -91,6 +96,8 @@ export interface MessageStatus {
   firstSeenAt: number;
   heard: number; // valid droplets received
   sang: number; // droplets transmitted
+  /** True once the node stopped relaying it (received more than relayLimit times). */
+  suppressed: boolean;
 }
 
 export interface InboxMessage {
@@ -100,6 +107,14 @@ export interface InboxMessage {
   hops: number;
   receivedAt: number;
   mine: boolean;
+  /**
+   * How many times this message was received: each decode of it (including a
+   * re-send with the same text and alias) and each further full copy heard.
+   * Starts at 0 for a message this node sent itself.
+   */
+  count: number;
+  /** True once the node stopped relaying it (count above relayLimit). */
+  suppressed: boolean;
 }
 
 export interface NodeState {
@@ -143,4 +158,5 @@ export const DEFAULT_NODE_CONFIG: NodeConfig = {
   muted: false,
   neighbors: null,
   camouflage: false,
+  relayLimit: 5,
 };

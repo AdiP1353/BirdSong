@@ -3,7 +3,7 @@ import { MAX_TEXT_CHARS } from '@birdsong/core';
 import { charCount } from '../counter.ts';
 import type { Runtime } from '../runtime.ts';
 
-export function Compose(props: { runtime: Runtime; onSent(): void }) {
+export function Compose(props: { runtime: Runtime; onSent(): void; compact?: boolean }) {
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const n = charCount(text);
@@ -19,7 +19,12 @@ export function Compose(props: { runtime: Runtime; onSent(): void }) {
   }
   return (
     <section class="panel">
-      <textarea rows={3} value={text} placeholder="Type a message to sing" onInput={(e) => setText(e.currentTarget.value)} />
+      <textarea
+        rows={props.compact ? 1 : 3} value={text} placeholder="Type a message to sing" onInput={(e) => setText(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && n > 0 && n <= MAX_TEXT_CHARS) { e.preventDefault(); void send(); }
+        }}
+      />
       <div class="row">
         <span class={n > MAX_TEXT_CHARS ? 'error' : ''}>{n} / {MAX_TEXT_CHARS}</span>
         <button disabled={n === 0 || n > MAX_TEXT_CHARS} onClick={() => void send()}>Send</button>

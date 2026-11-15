@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3-force';
 import type { Simulation, SimulationLinkDatum, SimulationNodeDatum } from 'd3-force';
 import type { NodeSnapshot, TelemetryEvent } from '@birdsong/core';
-import { progressFor, speciesColor } from '../derive.ts';
+import { progressFor, relayFor, speciesColor } from '../derive.ts';
 import { store } from '../hubClient.ts';
+import { matchPreset } from '../presetMatch.ts';
 
 const W = 1200;
 const H = 520;
@@ -71,19 +72,38 @@ export function FlockGraph(props: { nodes: NodeSnapshot[]; events: TelemetryEven
     if (!p) pulses.set(key, { a, b, last: e.t });
     else if (e.t > p.last) p.last = e.t;
   }
-  const nextLinkKey = [...pulses.keys()].sort().join('|');
+  // A manual topology fixes who can hear whom: lay the graph out by its links and draw them faintly.
+  const wired = new Map<string, { a: number; b: number }>();
+  if (store.topology?.manual) {
+    for (const [x, y] of store.topology.links) {
+      const a = Math.min(x, y);
+      const b = Math.max(x, y);
+      wired.set(`${a}-${b}`, { a, b });
+    }
+  }
+  const layoutLinks = wired.size > 0 ? wired : pulses;
+  const nextLinkKey = `${wired.size > 0 ? 'w' : 'p'}:${[...layoutLinks.keys()].sort().join('|')}:${[...simNodes.current.keys()].join(',')}`;
   if (sim.current && nextLinkKey !== linkKey.current) {
     linkKey.current = nextLinkKey;
+    // A preset topology pins every node to its hand-drawn spot; anything else is laid out by force.
+    const layout = matchPreset(store.topology)?.layout ?? null;
+    for (const n of simNodes.current.values()) {
+      const at = layout?.[n.id];
+      n.fx = at ? at[0] : null;
+      n.fy = at ? at[1] : null;
+    }
     const links: SimLink[] = [];
-    for (const p of pulses.values()) {
+    for (const p of layoutLinks.values()) {
       if (simNodes.current.has(p.a) && simNodes.current.has(p.b)) links.push({ source: p.a, target: p.b });
     }
     const lf = sim.current.force('link') as ReturnType<typeof forceLink<SimNode, SimLink>>;
     lf.links(links);
-    sim.current.alpha(0.3).restart();
+    lf.strength(wired.size > 0 ? 0.5 : 0.15).distance(wired.size > 0 ? 210 : 170);
+    sim.current.alpha(wired.size > 0 ? 0.8 : 0.3).restart();
   }
 
   const progress = progressFor(events, focus);
+  const relay = relayFor(events, focus);
   const singing = new Set<number>();
   for (const e of events) if (e.type === 'sang' && now - e.t < e.durationMs) singing.add(e.node);
 
@@ -95,6 +115,16 @@ export function FlockGraph(props: { nodes: NodeSnapshot[]; events: TelemetryEven
 
   return (
     <svg class="panel graph" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet">
+      {[...wired.values()].map((l) => {
+        const a = pos(l.a);
+        const b = pos(l.b);
+        return (
+          <line
+            key={`w${l.a}-${l.b}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+            stroke="var(--fg)" stroke-opacity="0.18" stroke-width="2" stroke-dasharray="6 6"
+          />
+        );
+      })}
       {[...pulses.values()].map((p) => {
         const age = now - p.last;
         const a = pos(p.a);
@@ -139,6 +169,11 @@ export function FlockGraph(props: { nodes: NodeSnapshot[]; events: TelemetryEven
             <text y={R + 36} text-anchor="middle" font-size="22" fill="var(--fg)" text-decoration={off ? 'line-through' : undefined}>
               {label}
             </text>
+            {relay.get(n.node)?.active === false && (
+              <text y={-R - 16} text-anchor="middle" font-size="17" fill="#ffb74d">
+                quiet · heard {relay.get(n.node)!.count}×
+              </text>
+            )}
           </g>
         );
       })}

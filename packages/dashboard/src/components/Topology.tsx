@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { TopologyView } from '@birdsong/core';
 import { setTopology } from '../hubClient.ts';
+import { TOPOLOGY_PRESETS } from '../presets.ts';
+import { matchPreset } from '../presetMatch.ts';
 
 /** Edit which simulated node hears which. The hub relays changes to the ether; nothing else may change them. */
 export function Topology(props: { topology: TopologyView | null }) {
@@ -59,11 +61,23 @@ export function Topology(props: { topology: TopologyView | null }) {
 
   if (!editable) return null;
   const manual = props.topology?.manual ?? false;
+  const active = matchPreset(props.topology);
   return (
     <div class="panel topology">
       <h2>
         Topology <span class={`badge ${manual ? 'on' : ''}`}>{props.topology ? (manual ? 'manual' : 'distance') : '…'}</span>
       </h2>
+      <div class="row presets">
+        {TOPOLOGY_PRESETS.map((p) => (
+          <button
+            key={p.id} disabled={busy} title={p.description}
+            class={active?.id === p.id ? 'on' : ''}
+            onClick={() => void apply(p.text)}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
       <textarea
         rows={4} spellcheck={false} value={draft} placeholder="Blank = hear by distance. Example: 0-1,2"
         aria-label="Topology links"

@@ -12,7 +12,9 @@ export type TelemetryEvent =
   | { type: 'rank'; node: number; msgId: number; rank: number; k: number; t: number }
   | { type: 'decoded'; node: number; msgId: number; hops: number; text: string; alias: string; t: number }
   | { type: 'sang'; node: number; msgId: number; seed: number; hop: number; k: number; airHex: string; durationMs: number; t: number }
-  | { type: 'expired'; node: number; msgId: number; t: number };
+  | { type: 'expired'; node: number; msgId: number; t: number }
+  /** The node stopped (active: false) or resumed (active: true) relaying a message; count = receptions so far. */
+  | { type: 'relay'; node: number; msgId: number; active: boolean; count: number; t: number };
 
 export type Command =
   | { type: 'configure'; node: number | 'all'; patch: Partial<NodeConfig> }
@@ -39,10 +41,15 @@ export interface TopologyView {
 
 /** Messages from the dashboard hub to a dashboard browser tab. */
 export type HubToUi =
-  | { type: 'snapshot'; nodes: NodeSnapshot[]; recent: TelemetryEvent[]; join: { pwaUrl: string; passphrase: string } }
+  | {
+      type: 'snapshot'; nodes: NodeSnapshot[]; recent: TelemetryEvent[]; join: { pwaUrl: string; passphrase: string };
+      /** The dashboard is disabled: the hub has cut off every node (see POST /api/disabled). */
+      disabled: boolean;
+    }
   | { type: 'event'; event: TelemetryEvent }
   | { type: 'nodeOffline'; node: number }
-  | { type: 'topology'; topology: TopologyView };
+  | { type: 'topology'; topology: TopologyView }
+  | { type: 'disabled'; disabled: boolean };
 
 /** Default ports. */
 export const HUB_PORT = 3200;

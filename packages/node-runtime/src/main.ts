@@ -46,6 +46,7 @@ const config: NodeConfig = {
   volume: cfg.volume,
   neighbors: cfg.neighbors,
   camouflage: cfg.camouflage,
+  relayLimit: cfg.relayLimit,
 };
 const node = createBirdNode({
   id: cfg.id, kind: 'container', passphrase: cfg.key, alias: cfg.alias, config, port,

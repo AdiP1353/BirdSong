@@ -69,7 +69,7 @@ describe('mesh end to end (fake modem)', () => {
   it('5. late joiner: a node that unmutes later still gets the message', async () => {
     const mesh = await buildMesh({
       positions: line(3),
-      perNode: (i) => (i === 2 ? { config: { env: 'quiet', profile: 'fast', volume: 0.8, muted: true, neighbors: null, camouflage: false } } : {}),
+      perNode: (i) => (i === 2 ? { config: { env: 'quiet', profile: 'fast', volume: 0.8, muted: true, neighbors: null, camouflage: false, relayLimit: 5 } } : {}),
     });
     const msgId = await mesh.nodes[0]!.send('hi');
     expect(await mesh.world.runUntil(() => decodedBy(mesh, msgId).has(1), 120_000)).toBe(true);

@@ -6,7 +6,7 @@ describe('parseConfig', () => {
     const c = parseConfig(['--key', 'k'], {});
     expect(c).toMatchObject({
       key: 'k', env: 'quiet', profile: 'fast', volume: 0.8, audio: 'pulse', ether: 'ws://localhost:7080',
-      x: 0, y: 0, observatory: null, port: 8080, neighbors: null, camouflage: false,
+      x: 0, y: 0, observatory: null, port: 8080, neighbors: null, camouflage: false, relayLimit: 5,
     });
     expect(c.id).toBeGreaterThanOrEqual(0);
     expect(c.id).toBeLessThanOrEqual(255);

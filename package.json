@@ -9,6 +9,8 @@
     "packages/*"
   ],
   "scripts": {
+    "demo": "bash scripts/demo.sh",
+    "demo:stop": "bash scripts/demo.sh --stop",
     "typecheck": "npm run typecheck --workspaces",
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts"

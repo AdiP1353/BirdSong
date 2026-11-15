@@ -95,6 +95,32 @@ describe('hub', () => {
     ui.ws.close();
   });
 
+  it('disabling cuts off every node, refuses new ones and drops commands; enabling lets them back', async () => {
+    const ui = await open('/ui');
+    const n = await open('/node');
+    n.ws.send(JSON.stringify(hello(2)));
+    await until(() => ui.msgs.length >= 2);
+    const closed = new Promise<void>((r) => n.ws.on('close', () => r()));
+    const post = (disabled: unknown) => fetch(`http://127.0.0.1:${hub.port}/api/disabled`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ disabled }),
+    });
+    expect((await post('yes')).status).toBe(400);
+    expect(await (await post(true)).json()).toEqual({ disabled: true });
+    await closed;
+    await until(() => ui.msgs.some((m) => (JSON.parse(m) as HubToUi).type === 'disabled'));
+    await expect(open('/node')).rejects.toThrow();
+    const late = await open('/ui');
+    await until(() => late.msgs.length > 0);
+    expect((JSON.parse(late.msgs[0]!) as Extract<HubToUi, { type: 'snapshot' }>).disabled).toBe(true);
+    expect(await (await fetch(`http://127.0.0.1:${hub.port}/api/disabled`)).json()).toEqual({ disabled: true });
+    expect(await (await post(false)).json()).toEqual({ disabled: false });
+    const back = await open('/node');
+    back.ws.send(JSON.stringify(hello(2)));
+    ui.ws.send(JSON.stringify({ type: 'configure', node: 2, patch: { muted: true } }));
+    await until(() => back.msgs.length === 1);
+    for (const x of [ui, late, back]) x.ws.close();
+  });
+
   it('serves a notice when dist is missing and config.json', async () => {
     const r = await fetch(`http://127.0.0.1:${hub.port}/`);
     expect(await r.text()).toContain('not built');

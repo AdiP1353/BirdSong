@@ -101,3 +101,11 @@ export function stats(nodes: NodeSnapshot[], events: TelemetryEvent[]) {
   }
   return { online: nodes.filter((n) => n.online).length, heard, crc, delivered: delivered.size };
 }
+
+/** Latest relay state per node for one message: present only for nodes that stopped or resumed relaying it. */
+export function relayFor(events: TelemetryEvent[], msgId: number | null): Map<number, { active: boolean; count: number }> {
+  const out = new Map<number, { active: boolean; count: number }>();
+  if (msgId === null) return out;
+  for (const e of events) if (e.type === 'relay' && e.msgId === msgId) out.set(e.node, { active: e.active, count: e.count });
+  return out;
+}

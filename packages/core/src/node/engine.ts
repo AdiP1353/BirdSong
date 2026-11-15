@@ -22,6 +22,7 @@ import type {
   RxMeta,
   TimerId,
 } from '../types.ts';
+import { DEFAULT_NODE_CONFIG } from '../types.ts';
 import type { TelemetryEvent } from '../telemetry.ts';
 import { toHex } from '../util/hex.ts';
 import { NODE_PARAMS } from './params.ts';
@@ -49,6 +50,19 @@ interface Entry {
   usedSeeds: Set<number>;
   trickle: Trickle | null;
   expiryTimer: TimerId | null;
+  /** Full copies heard since held that were already counted as receptions. */
+  copies: number;
+  /** Inbox row this message belongs to (same alias and text), once held. */
+  inboxKey: string | null;
+  /** Stopped relaying: received more than config.relayLimit times. */
+  suppressed: boolean;
+}
+
+const rowKey = (alias: string, text: string): string => `${alias}\u0000${text}`;
+
+function clampLimit(v: unknown, fallback: number): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : fallback;
 }
 
 function copyConfig(c: NodeConfig): NodeConfig {
@@ -62,11 +76,14 @@ export function createBirdNode(opts: BirdNodeOptions): BirdNode {
   const alias = opts.alias ?? 'bird' + id;
   const config: NodeConfig = copyConfig(opts.config);
   config.volume = Math.min(1, Math.max(0, config.volume));
+  config.relayLimit = clampLimit(config.relayLimit, DEFAULT_NODE_CONFIG.relayLimit);
 
   const listeners: Array<(e: TelemetryEvent) => void> = [];
   const entries = new Map<number, Entry>();
   const tombstones = new Set<number>();
   const inbox: InboxMessage[] = [];
+  /** Inbox rows by alias + text, so a repeated message adds to a count instead of a new row. */
+  const rows = new Map<string, InboxMessage>();
   const queue = createTxQueue();
   const tracked = new Set<Promise<unknown>>();
 
@@ -159,7 +176,7 @@ export function createBirdNode(opts: BirdNodeOptions): BirdNode {
         msgId: frame.msgId, k: frame.k, hop: frame.hop + 1, firstSeenAt: now, heldAt: null,
         heard: 0, sang: 0, heardSinceHeld: 0, trickleCount: 0, finishing: false,
         decoder: createFountainDecoder(frame.k), envelope: null, blocks: null,
-        usedSeeds: new Set(), trickle: null, expiryTimer: null,
+        usedSeeds: new Set(), trickle: null, expiryTimer: null, copies: 0, inboxKey: null, suppressed: false,
       };
       entries.set(frame.msgId, entry);
     } else if (entry.k !== frame.k) {
@@ -173,7 +190,10 @@ export function createBirdNode(opts: BirdNodeOptions): BirdNode {
     if (held) entry.heardSinceHeld++;
     entry.trickleCount++;
     if (entry.trickle) entry.trickle.heard();
-    if (held) return;
+    if (held) {
+      creditCopies(entry);
+      return;
+    }
 
     if (entry.decoder.add(frame.seed, frame.payload)) {
       emit({ type: 'rank', node: id, msgId: entry.msgId, rank: entry.decoder.rank, k: entry.k, t: now });
@@ -203,15 +223,82 @@ export function createBirdNode(opts: BirdNodeOptions): BirdNode {
     }
     const now = clock.now();
     becomeHeld(entry, env);
-    inbox.push({
-      msgId: entry.msgId, text: opened.text, alias: opened.alias, hops: entry.hop, receivedAt: now, mine: false,
-    });
+    const key = rowKey(opened.alias, opened.text);
+    entry.inboxKey = key;
+    const row = rows.get(key);
+    if (row) {
+      row.count++;
+      row.hops = Math.min(row.hops, entry.hop);
+    } else {
+      const fresh: InboxMessage = {
+        msgId: entry.msgId, text: opened.text, alias: opened.alias, hops: entry.hop, receivedAt: now, mine: false,
+        count: 1, suppressed: false,
+      };
+      inbox.push(fresh);
+      rows.set(key, fresh);
+    }
     emit({
       type: 'decoded', node: id, msgId: entry.msgId, hops: entry.hop, text: opened.text, alias: opened.alias, t: now,
     });
+    if (overLimit(key)) {
+      // Already heard this text often enough: keep it, but do not relay this copy either.
+      enforceLimit(key);
+      return;
+    }
     if (entry.hop < HOP_LIMIT) {
       enqueueBurst(entry, entry.k);
       startTrickle(entry);
+    }
+  }
+
+  // ------------------------------------------------------ relay limit
+
+  function overLimit(key: string): boolean {
+    const row = rows.get(key);
+    return row !== undefined && config.relayLimit > 0 && row.count > config.relayLimit;
+  }
+
+  /** Every k droplets heard after decoding count as one more reception of the message. */
+  function creditCopies(entry: Entry): void {
+    const copies = Math.floor(entry.heardSinceHeld / Math.max(1, entry.k));
+    if (copies <= entry.copies) return;
+    const delta = copies - entry.copies;
+    entry.copies = copies;
+    const row = entry.inboxKey === null ? undefined : rows.get(entry.inboxKey);
+    if (!row) return;
+    row.count += delta;
+    if (overLimit(entry.inboxKey!)) enforceLimit(entry.inboxKey!);
+  }
+
+  /** Stop relaying every held message of this inbox row. */
+  function enforceLimit(key: string): void {
+    for (const e of entries.values()) if (e.inboxKey === key && e.envelope && !e.suppressed) suppress(e);
+  }
+
+  function suppress(entry: Entry): void {
+    entry.suppressed = true;
+    entry.trickle?.stop();
+    queue.removeMsg(entry.msgId);
+    const count = rows.get(entry.inboxKey ?? '')?.count ?? 0;
+    emit({ type: 'relay', node: id, msgId: entry.msgId, active: false, count, t: clock.now() });
+  }
+
+  function resume(entry: Entry): void {
+    entry.suppressed = false;
+    const count = rows.get(entry.inboxKey ?? '')?.count ?? 0;
+    emit({ type: 'relay', node: id, msgId: entry.msgId, active: true, count, t: clock.now() });
+    if (entry.hop >= HOP_LIMIT) return;
+    if (entry.trickle) entry.trickle.start();
+    else startTrickle(entry);
+  }
+
+  /** After relayLimit changes: stop or resume each held message to match. */
+  function reapplyLimit(): void {
+    for (const e of entries.values()) {
+      if (!e.envelope || e.inboxKey === null) continue;
+      const over = overLimit(e.inboxKey);
+      if (over && !e.suppressed) suppress(e);
+      else if (!over && e.suppressed) resume(e);
     }
   }
 
@@ -232,7 +319,7 @@ export function createBirdNode(opts: BirdNodeOptions): BirdNode {
 
   function startTrickle(entry: Entry): void {
     entry.trickle = createTrickle(clock, rng, P, () => {
-      if (stopped || entries.get(entry.msgId) !== entry) return;
+      if (stopped || entry.suppressed || entries.get(entry.msgId) !== entry) return;
       if (!queue.has(entry.msgId)) {
         queue.push({ msgId: entry.msgId, kind: 'trickle' });
         pumpStart();
@@ -301,7 +388,7 @@ export function createBirdNode(opts: BirdNodeOptions): BirdNode {
       const item = queue.shift();
       if (!item) return;
       const e = entries.get(item.msgId);
-      if (!e || !e.envelope || !e.blocks) continue;
+      if (!e || !e.envelope || !e.blocks || e.suppressed) continue;
       if (item.kind === 'burst' && e.heardSinceHeld >= e.k) continue;
       const s = pickSeed(e);
       if (s < 0) continue;
@@ -406,11 +493,25 @@ export function createBirdNode(opts: BirdNodeOptions): BirdNode {
           const entry: Entry = {
             msgId, k: blocks.length, hop: 0, firstSeenAt: now, heldAt: null, heard: 0, sang: 0,
             heardSinceHeld: 0, trickleCount: 0, finishing: false, decoder, envelope: null, blocks: null,
-            usedSeeds: new Set(), trickle: null, expiryTimer: null,
+            usedSeeds: new Set(), trickle: null, expiryTimer: null, copies: 0, inboxKey: null, suppressed: false,
           };
           entries.set(msgId, entry);
           becomeHeld(entry, env);
-          inbox.push({ msgId, text, alias, hops: 0, receivedAt: now, mine: true });
+          // Sending a text again reuses its inbox row; the count restarts, since this is a fresh send.
+          const key = rowKey(alias, text);
+          entry.inboxKey = key;
+          const row = rows.get(key);
+          if (row) {
+            row.msgId = msgId;
+            row.hops = 0;
+            row.mine = true;
+            row.receivedAt = now;
+            row.count = 0;
+          } else {
+            const fresh: InboxMessage = { msgId, text, alias, hops: 0, receivedAt: now, mine: true, count: 0, suppressed: false };
+            inbox.push(fresh);
+            rows.set(key, fresh);
+          }
           emit({ type: 'decoded', node: id, msgId, hops: 0, text, alias, t: now });
           enqueueBurst(entry, entry.k + 1);
           startTrickle(entry);
@@ -423,6 +524,7 @@ export function createBirdNode(opts: BirdNodeOptions): BirdNode {
       const prev = snapshotConfig();
       const next: NodeConfig = { ...config, ...patch };
       next.volume = Math.min(1, Math.max(0, next.volume));
+      next.relayLimit = clampLimit(next.relayLimit, prev.relayLimit);
       next.neighbors = next.neighbors === null ? null : [...next.neighbors];
       Object.assign(config, next);
       port.setVolume(config.volume);
@@ -437,6 +539,7 @@ export function createBirdNode(opts: BirdNodeOptions): BirdNode {
         modem?.reset();
         pumpStart();
       }
+      if (config.relayLimit !== prev.relayLimit) reapplyLimit();
       emit({ type: 'config', node: id, config: snapshotConfig(), t: clock.now() });
     },
 
@@ -446,10 +549,11 @@ export function createBirdNode(opts: BirdNodeOptions): BirdNode {
         const held = e.envelope !== null;
         messages.push({
           msgId: e.msgId, k: e.k, rank: held ? e.k : e.decoder.rank, decoded: held, hop: e.hop,
-          firstSeenAt: e.firstSeenAt, heard: e.heard, sang: e.sang,
+          firstSeenAt: e.firstSeenAt, heard: e.heard, sang: e.sang, suppressed: e.suppressed,
         });
       }
-      return { id, species, kind, config: snapshotConfig(), messages, inbox: inbox.map((m) => ({ ...m })) };
+      const rowsOut = inbox.map((m) => ({ ...m, suppressed: overLimit(rowKey(m.alias, m.text)) }));
+      return { id, species, kind, config: snapshotConfig(), messages, inbox: rowsOut };
     },
 
     onEvent(cb) {

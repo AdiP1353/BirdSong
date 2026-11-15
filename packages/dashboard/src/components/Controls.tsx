@@ -1,4 +1,5 @@
-import { ENVS, ENV_NAMES, PROFILE_NAMES } from '@birdsong/core';
+import { useEffect, useState } from 'preact/hooks';
+import { DEFAULT_NODE_CONFIG, ENVS, ENV_NAMES, PROFILE_NAMES } from '@birdsong/core';
 import type { EnvName, NodeConfig, NodeSnapshot, ProfileName, TelemetryEvent } from '@birdsong/core';
 import { sendCommand } from '../hubClient.ts';
 import { originOf } from '../derive.ts';
@@ -13,8 +14,19 @@ export function Controls(props: {
   env: EnvName;
   profile: ProfileName;
   camouflage: boolean;
+  disabled?: boolean;
 }) {
   const { nodes, events, focus } = props;
+  const containers = nodes.filter((n) => n.online && n.kind !== 'browser');
+  const limit = containers[0]?.config.relayLimit ?? DEFAULT_NODE_CONFIG.relayLimit;
+  const mixed = containers.some((n) => n.config.relayLimit !== limit);
+  const [draft, setDraft] = useState(String(limit));
+  useEffect(() => setDraft(String(limit)), [limit]);
+  const applyLimit = (): void => {
+    const n = Math.floor(Number(draft));
+    if (draft.trim() === '' || !Number.isFinite(n) || n < 0) { setDraft(String(limit)); return; }
+    configure('all', { relayLimit: n });
+  };
 
   const killTwo = (): void => {
     const origin = focus === null ? null : originOf(events, focus);
@@ -50,6 +62,21 @@ export function Controls(props: {
           />
           Camouflage
         </label>
+      </div>
+      <div class="row relay">
+        <label>
+          Stop relaying after
+          <span class="inline">
+            <input
+              type="number" min="0" step="1" value={draft} aria-label="Relay limit"
+              onInput={(e) => setDraft(e.currentTarget.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') applyLimit(); }}
+              onBlur={applyLimit}
+            />
+            receptions{mixed ? ' (mixed)' : ''}
+          </span>
+        </label>
+        <span class="dim hint">A bird that has received a message more than N times stops singing it. 0 = never stop.</span>
       </div>
       <button class="kill" onClick={killTwo}>Kill 2 random relays</button>
       <div class="nodes">

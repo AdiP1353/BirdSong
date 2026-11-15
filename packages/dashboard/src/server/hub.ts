@@ -50,6 +50,11 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
   const nodeSockets = new Map<number, WebSocket>();
   const socketNode = new Map<WebSocket, number>();
   const uiSockets = new Set<WebSocket>();
+  /**
+   * Disabled = the demo's "turn the dashboard off": the hub drops every node connection and refuses new
+   * ones, so it neither sees nor controls the flock. Messages still travel bird to bird through the air.
+   */
+  let disabled = false;
 
   const sendUi = (msg: HubToUi): void => {
     const s = JSON.stringify(msg);
@@ -145,9 +150,43 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
     reply(r.status, parsed);
   }
 
+  function setDisabled(next: boolean): void {
+    if (next === disabled) return;
+    disabled = next;
+    log.append('disabled', { disabled });
+    if (disabled) {
+      for (const ws of [...socketNode.keys()]) ws.close(1013, 'dashboard disabled');
+    }
+    sendUi({ type: 'disabled', disabled });
+  }
+
+  async function disabledRoute(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const reply = (status: number, body: unknown): void => {
+      res.writeHead(status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(body));
+    };
+    if (req.method === 'GET') { reply(200, { disabled }); return; }
+    if (req.method !== 'POST') { reply(405, { error: 'use GET or POST' }); return; }
+    let body: unknown;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch (err) {
+      reply(400, { error: (err as Error).message });
+      return;
+    }
+    const v = (body as { disabled?: unknown } | null)?.disabled;
+    if (typeof v !== 'boolean') { reply(400, { error: 'body must be {"disabled": true|false}' }); return; }
+    setDisabled(v);
+    reply(200, { disabled });
+  }
+
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://x');
     const p = url.pathname;
+    if (p === '/api/disabled') {
+      await disabledRoute(req, res);
+      return;
+    }
     if (p === '/config.json') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ etherUrl, proxyUrl, topologyEditable: etherControlUrl !== null }));
@@ -185,6 +224,10 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
     const path = new URL(req.url ?? '/', 'http://x').pathname;
     if (path !== '/node' && path !== '/ui') {
       socket.destroy();
+      return;
+    }
+    if (path === '/node' && disabled) {
+      socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
@@ -233,7 +276,7 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
     uiSockets.add(ws);
     const snap: HubToUi = {
       type: 'snapshot', nodes: state.snapshot(), recent: state.recent(),
-      join: { pwaUrl, passphrase },
+      join: { pwaUrl, passphrase }, disabled,
     };
     ws.send(JSON.stringify(snap));
     ws.on('message', (data) => {
@@ -244,6 +287,7 @@ export function startHub(opts: HubOptions = {}): Promise<{ port: number; close()
         return;
       }
       if (typeof cmd !== 'object' || cmd === null) return;
+      if (disabled) return;
       log.append('command', cmd);
       const text = JSON.stringify(cmd);
       if (cmd.node === 'all') {

@@ -9,6 +9,8 @@ export interface Store {
   focus: number | null;
   /** The ether's topology; null until the Topology panel loads it. */
   topology: TopologyView | null;
+  /** The hub has cut itself off from the flock (the "disable dashboard" demo). */
+  disabled: boolean;
   version: number;
 }
 
@@ -20,6 +22,7 @@ export const store: Store = {
   connected: false,
   focus: null,
   topology: null,
+  disabled: false,
   version: 0,
 };
 
@@ -46,6 +49,17 @@ export function setTopology(t: TopologyView): void {
   changed();
 }
 
+/** Turn the dashboard off (the hub drops every node) or back on. */
+export async function setDisabled(disabled: boolean): Promise<void> {
+  const r = await fetch('/api/disabled', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ disabled }),
+  });
+  if (r.ok) {
+    store.disabled = ((await r.json()) as { disabled: boolean }).disabled;
+    changed();
+  }
+}
+
 export function sendCommand(cmd: Command): void {
   if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(cmd));
 }
@@ -63,12 +77,15 @@ export function connect(): void {
     if (msg.type === 'snapshot') {
       store.state.load(msg.nodes as NodeSnapshot[], msg.recent as TelemetryEvent[]);
       store.join = msg.join;
+      store.disabled = msg.disabled ?? false;
     } else if (msg.type === 'event') {
       store.state.apply(msg.event, msg.event.t);
     } else if (msg.type === 'nodeOffline') {
       store.state.markOffline(msg.node, Date.now());
     } else if (msg.type === 'topology') {
       store.topology = msg.topology;
+    } else if (msg.type === 'disabled') {
+      store.disabled = msg.disabled;
     }
     changed();
   };

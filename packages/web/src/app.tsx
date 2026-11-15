@@ -9,6 +9,8 @@ import type { Runtime } from './runtime.ts';
 
 const params = new URLSearchParams(location.search);
 const remote = params.get('runtime') === 'remote';
+const compact = params.get('compact') === '1';
+if (compact) document.documentElement.classList.add('compact');
 let remoteBase: string | null = null;
 let remoteError: string | null = null;
 if (remote) {
@@ -98,7 +100,7 @@ export function App() {
     <main>
       {!runtime && <Join initial={initialJoin} error={error} busy={busy} onJoin={join} />}
       {runtime && state && (
-        <Flock runtime={runtime} state={state} passphrase={secrets.current.passphrase} alias={secrets.current.alias} refresh={refresh} configure={configure} />
+        <Flock runtime={runtime} state={state} passphrase={secrets.current.passphrase} alias={secrets.current.alias} refresh={refresh} configure={configure} compact={compact} />
       )}
       {runtime && !state && <p class="dim">Connecting...</p>}
     </main>

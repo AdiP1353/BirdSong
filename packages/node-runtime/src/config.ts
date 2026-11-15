@@ -18,6 +18,7 @@ export interface RuntimeConfig {
   port: number;
   neighbors: number[] | null;
   camouflage: boolean;
+  relayLimit: number;
 }
 
 export const USAGE = `birdsong node runtime
@@ -38,6 +39,7 @@ Options (each also reads the environment variable shown):
   --port <n>             BIRDSONG_PORT         HTTP/UI port (default: 8080)
   --neighbors <ids>      BIRDSONG_NEIGHBORS    comma-separated sender ids to accept
   --camouflage           BIRDSONG_CAMOUFLAGE   play the ambient bed (true|false)
+  --relay-limit <n>      BIRDSONG_RELAY_LIMIT  stop relaying a message after receiving it more than n times (0 = never; default: 5)
   --help                 print this text
 `;
 
@@ -69,6 +71,7 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
       port: { type: 'string' },
       neighbors: { type: 'string' },
       camouflage: { type: 'boolean' },
+      'relay-limit': { type: 'string' },
     },
   });
   const pick = (flag: string, envName: string): string | undefined => {
@@ -116,5 +119,6 @@ export function parseConfig(argv: string[], env: Record<string, string | undefin
     port: num('--port', pick('port', 'BIRDSONG_PORT') ?? '8080', 0, 65535, true),
     neighbors,
     camouflage,
+    relayLimit: num('--relay-limit', pick('relay-limit', 'BIRDSONG_RELAY_LIMIT') ?? '5', 0, 1000, true),
   };
 }
